@@ -71,10 +71,12 @@ function NetworkCard({ network, isSelected, onClick }: NetworkCardProps) {
 }
 
 export function Sidebar() {
-  const { networks, selectedNetworkId, setNetworks, selectNetwork, addNetwork } = useNetworkStore()
+  const { networks, selectedNetworkId, setNetworks, selectNetwork, addNetwork, wsConnected } = useNetworkStore()
 
   useEffect(() => {
-    // Fetch network list on mount
+    // Only fetch when backend is connected
+    if (!wsConnected) return
+
     const fetchNetworks = async () => {
       try {
         const data = await api.get<NetworkListResponse>('/networks')
@@ -97,16 +99,16 @@ export function Sidebar() {
         )
 
         setNetworks(networksWithStatus)
-      } catch {
-        // Silently fail - backend may not be running
+      } catch (e) {
+        console.error('Failed to fetch networks:', e)
       }
     }
 
     fetchNetworks()
-    // Refresh every 10 seconds
-    const interval = setInterval(fetchNetworks, 10000)
+    // Refresh every 5 seconds while connected
+    const interval = setInterval(fetchNetworks, 5000)
     return () => clearInterval(interval)
-  }, [setNetworks, addNetwork])
+  }, [setNetworks, addNetwork, wsConnected])
 
   const handleLoadExample = async () => {
     try {

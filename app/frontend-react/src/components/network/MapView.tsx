@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { api, type Bus, type Line, type Link } from '@/api/client'
+import { useNetworkStore } from '@/stores/networkStore'
 
 interface MapViewProps {
   networkId: string
@@ -17,6 +18,7 @@ export function MapView({ networkId }: MapViewProps) {
   }>({ buses: null, lines: null, links: null })
 
   const [loading, setLoading] = useState(true)
+  const wsConnected = useNetworkStore((state) => state.wsConnected)
 
   useEffect(() => {
     if (!mapRef.current) return
@@ -35,11 +37,12 @@ export function MapView({ networkId }: MapViewProps) {
   }, [])
 
   useEffect(() => {
-    const loadMapData = async () => {
-      if (!mapInstanceRef.current) return
+    // Only load when backend is connected
+    if (!wsConnected || !mapInstanceRef.current) return
 
+    const loadMapData = async () => {
       setLoading(true)
-      const map = mapInstanceRef.current
+      const map = mapInstanceRef.current!
 
       // Clear existing layers
       Object.values(layersRef.current).forEach((layer) => {
@@ -113,15 +116,15 @@ export function MapView({ networkId }: MapViewProps) {
             map.fitBounds(bounds, { padding: [50, 50], maxZoom: 6 })
           }
         }
-      } catch {
-        // Silently fail - backend may not be running
+      } catch (e) {
+        console.error('Failed to load map data:', e)
       } finally {
         setLoading(false)
       }
     }
 
     loadMapData()
-  }, [networkId])
+  }, [networkId, wsConnected])
 
   // Resize map when container size changes
   useEffect(() => {
