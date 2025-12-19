@@ -91,11 +91,22 @@ export function DataTableView({ networkId, component, columns }: DataTableViewPr
   })
 
   if (loading) {
-    return <div className="text-muted-foreground">Loading {component}...</div>
+    return (
+      <div className="flex items-center justify-center h-32 text-muted-foreground">
+        Loading {component}...
+      </div>
+    )
   }
 
   if (data.length === 0) {
-    return <div className="text-muted-foreground">No {component} data</div>
+    return (
+      <div className="flex items-center justify-center h-32 text-muted-foreground">
+        <div className="text-center">
+          <p>No {component} data</p>
+          <p className="text-sm mt-1">This network has no {component} defined</p>
+        </div>
+      </div>
+    )
   }
 
   return (

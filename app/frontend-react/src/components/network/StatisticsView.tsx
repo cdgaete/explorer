@@ -148,6 +148,17 @@ export function StatisticsView({ networkId }: StatisticsViewProps) {
     )
   }
 
+  if (availableStats.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-32 text-muted-foreground">
+        <div className="text-center">
+          <p>No statistics available</p>
+          <p className="text-sm mt-1">Select a network to explore its statistics</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-semibold">Statistics Explorer</h2>

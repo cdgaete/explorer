@@ -30,11 +30,22 @@ export function MetadataView({ networkId }: MetadataViewProps) {
   }, [networkId])
 
   if (loading) {
-    return <div className="text-muted-foreground">Loading metadata...</div>
+    return (
+      <div className="flex items-center justify-center h-32 text-muted-foreground">
+        Loading metadata...
+      </div>
+    )
   }
 
   if (error || !metadata) {
-    return <div className="text-destructive">{error || 'No metadata available'}</div>
+    return (
+      <div className="flex items-center justify-center h-32 text-muted-foreground">
+        <div className="text-center">
+          <p>No metadata available</p>
+          <p className="text-sm mt-1">Select a network to view its details</p>
+        </div>
+      </div>
+    )
   }
 
   return (
