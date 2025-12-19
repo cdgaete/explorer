@@ -22,7 +22,13 @@ Build a modern desktop application that enables users to:
 - **PyPSA** (Python for Power System Analysis) for energy network modeling
 - **Linopy** for building and solving linear optimization problems
 - **SQLite3** databases (`.db` files) to store network data, queried by the frontend
-- Long-running optimization processes with progress tracking
+
+### Task Queue (Long-running Jobs)
+- **Huey** with SQLite backend for task queue management
+- No external services required (no Redis/RabbitMQ)
+- Tasks persist in SQLite - survives app restart/crash
+- Features: retries, scheduling, progress tracking, cancellation
+- WebSocket streaming for real-time progress updates to UI
 
 ### Optimization Solvers
 - **HiGHS** (default) - Open-source, high-performance LP/MIP solver
@@ -269,6 +275,7 @@ The application provides configuration menus for both optimization solvers and A
 | State Management | TBD | Zustand, Jotai, or Redux Toolkit |
 | Desktop Runtime | TBD | Electron or Tauri |
 | Backend Server | FastAPI | Async Python web framework |
+| Task Queue | Huey | SQLite-backed, no Redis needed |
 | Energy Modeling | PyPSA | Power system analysis and components |
 | Optimization | Linopy | Linear optimization problem modeling |
 | Default Solver | HiGHS | Open-source LP/MIP solver |
@@ -276,7 +283,7 @@ The application provides configuration menus for both optimization solvers and A
 | Distribution | Pixi Pack | Bundle Python env for end users |
 | AI Agent | LangGraph | Tool-using agent for chat interface |
 | LLM Provider | OpenRouter / Ollama / OpenAI | Configurable via settings |
-| Database | SQLite3 | Local network data storage |
+| Database | SQLite3 | Network data + task queue storage |
 | IPC | HTTP + WebSocket | REST API + streaming via FastAPI |
 
 ## System Architecture
@@ -292,10 +299,14 @@ The application provides configuration menus for both optimization solvers and A
 │  │  │                          │  │  │  │                          │  │ │
 │  │  │  - Network Maps          │  │  │  │  - REST endpoints        │  │ │
 │  │  │  - Data Tables           │ WS │  │  - WebSocket streaming    │  │ │
-│  │  │  - Charts                │HTTP│  │  - Background tasks       │  │ │
-│  │  │  - AI Chat Panel         │  │  │  │                          │  │ │
-│  │  └──────────────────────────┘  │  │  └───────────┬──────────────┘  │ │
-│  └────────────────────────────────┘  │              │                  │ │
+│  │  │  - Charts                │HTTP│  │  │                          │  │ │
+│  │  │  - AI Chat Panel         │  │  │  └───────────┬──────────────┘  │ │
+│  │  └──────────────────────────┘  │  │              │                  │ │
+│  └────────────────────────────────┘  │  ┌───────────▼──────────────┐  │ │
+│                                      │  │   Huey Task Queue        │  │ │
+│                                      │  │   (SQLite backend)       │  │ │
+│                                      │  └───────────┬──────────────┘  │ │
+│                                      │              │                  │ │
 │                                      │  ┌───────────▼──────────────┐  │ │
 │                                      │  │    LangGraph Agent       │  │ │
 │                                      │  │    + Tool Registry       │  │ │
@@ -309,8 +320,9 @@ The application provides configuration menus for both optimization solvers and A
 └─────────────────────────────────────────────────────┼───────────────────┘
                                                       │
                                           ┌───────────▼──────────────┐
-                                          │     SQLite3 Database     │
-                                          │   (network_data.db)      │
+                                          │     SQLite3 Databases    │
+                                          │  - network_data.db       │
+                                          │  - tasks.db (Huey queue) │
                                           └──────────────────────────┘
 ```
 
@@ -320,6 +332,41 @@ The application provides configuration menus for both optimization solvers and A
 2. **API Calls**: React frontend calls REST endpoints for data operations
 3. **Streaming**: WebSocket for real-time logs, optimization progress, and LLM responses
 4. **Agent Tools**: LangGraph agent executes tools that query backends and database
+
+### Task Queue Workflow
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   User      │     │   FastAPI   │     │    Huey     │     │   PyPSA     │
+│  (UI/Chat)  │     │   Server    │     │   Worker    │     │  Optimize   │
+└──────┬──────┘     └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
+       │                   │                   │                   │
+       │  POST /optimize   │                   │                   │
+       │──────────────────►│                   │                   │
+       │                   │  enqueue task     │                   │
+       │                   │──────────────────►│                   │
+       │   task_id         │                   │                   │
+       │◄──────────────────│                   │                   │
+       │                   │                   │  run optimization │
+       │   WS: progress 10%│                   │──────────────────►│
+       │◄──────────────────│◄──────────────────│                   │
+       │   WS: progress 50%│                   │◄──────────────────│
+       │◄──────────────────│◄──────────────────│   progress update │
+       │   WS: complete    │                   │                   │
+       │◄──────────────────│◄──────────────────│   results ready   │
+       │                   │                   │                   │
+       │  GET /results     │                   │                   │
+       │──────────────────►│                   │                   │
+       │   optimization    │                   │                   │
+       │   results         │                   │                   │
+       │◄──────────────────│                   │                   │
+```
+
+**Key features:**
+- Tasks queued instantly, run in background worker
+- Progress streamed via WebSocket in real-time
+- Tasks survive app restart (persisted in SQLite)
+- Cancel running tasks via API
 
 ## Distribution with Pixi Pack
 
