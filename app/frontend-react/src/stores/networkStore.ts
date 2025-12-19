@@ -9,11 +9,11 @@ export interface Network {
   lines: number
   loads: number
   links: number
-  optStatus: 'idle' | 'running' | 'completed' | 'failed'
+  optStatus: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
 }
 
 export interface OptimizationProgress {
-  status: 'idle' | 'starting' | 'running' | 'completed' | 'failed'
+  status: 'idle' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled'
   progress: number
   message: string
   error?: string

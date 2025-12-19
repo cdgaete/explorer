@@ -29,6 +29,15 @@ export function BottomPanel() {
     }
   }
 
+  const handleCancelOptimization = async () => {
+    if (!selectedNetworkId) return
+    try {
+      await api.post(`/networks/${selectedNetworkId}/cancel-optimization`)
+    } catch (e) {
+      console.error('Cancel failed:', e)
+    }
+  }
+
   return (
     <div className="flex flex-col h-full bg-card border-t border-border">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
@@ -55,8 +64,8 @@ export function BottomPanel() {
                 <Button
                   size="lg"
                   className="h-16 w-32"
-                  onClick={handleRunOptimization}
-                  disabled={isOptimizing}
+                  onClick={isOptimizing ? handleCancelOptimization : handleRunOptimization}
+                  variant={isOptimizing ? "destructive" : "default"}
                 >
                   {isOptimizing ? (
                     <>
@@ -87,6 +96,7 @@ export function BottomPanel() {
                   <span className={`text-sm font-medium ${
                     optimization.status === 'completed' ? 'text-green-500' :
                     optimization.status === 'failed' ? 'text-destructive' :
+                    optimization.status === 'cancelled' ? 'text-yellow-500' :
                     optimization.status === 'running' ? 'text-primary' :
                     'text-muted-foreground'
                   }`}>
@@ -94,6 +104,7 @@ export function BottomPanel() {
                      optimization.status === 'starting' ? 'Starting...' :
                      optimization.status === 'running' ? 'Running...' :
                      optimization.status === 'completed' ? 'Completed' :
+                     optimization.status === 'cancelled' ? 'Cancelled' :
                      'Failed'}
                   </span>
                 </div>

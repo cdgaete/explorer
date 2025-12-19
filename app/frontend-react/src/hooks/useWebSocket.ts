@@ -63,6 +63,8 @@ export function useWebSocket() {
             }
           } else if (msg.status === 'failed') {
             addLog(`Optimization failed: ${msg.error || 'Unknown error'}`, 'error')
+          } else if (msg.status === 'cancelled') {
+            addLog(`Optimization cancelled by user`, 'warning')
           }
 
           if (msg.network_id) {
@@ -72,6 +74,8 @@ export function useWebSocket() {
               updateNetworkOptStatus(msg.network_id, 'running')
             } else if (msg.status === 'failed') {
               updateNetworkOptStatus(msg.network_id, 'failed')
+            } else if (msg.status === 'cancelled') {
+              updateNetworkOptStatus(msg.network_id, 'cancelled')
             }
           }
         } else if (msg.type === 'optimization_log') {
