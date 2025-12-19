@@ -1,0 +1,18 @@
+[workspace]
+name = "explorer-backend"
+version = "0.1.0"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
+
+[dependencies]
+python = ">=3.11"
+fastapi = ">=0.115"
+uvicorn = ">=0.32"
+websockets = ">=14.0"
+pypsa = ">=1.0"
+pandas = ">=2.0"
+numpy = ">=1.26"
+highs = ">=1.7"
+
+[tasks]
+serve = "uvicorn app:app --host 127.0.0.1 --port 8000 --reload"
