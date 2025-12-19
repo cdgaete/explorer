@@ -19,10 +19,15 @@ Build a modern desktop application that enables users to:
 
 ### Backend
 - **FastAPI** server running as subprocess for API and WebSocket communication
-- **Python 3.10+** for energy modeling and optimization
+- **PyPSA** (Python for Power System Analysis) for energy network modeling
+- **Linopy** for building and solving linear optimization problems
 - **SQLite3** databases (`.db` files) to store network data, queried by the frontend
-- Support for loading external Python packages dynamically
 - Long-running optimization processes with progress tracking
+
+### Optimization Solvers
+- **HiGHS** (default) - Open-source, high-performance LP/MIP solver
+- **Commercial solvers** (optional) - Gurobi, CPLEX, etc. with license file support
+- Solver selection via configuration menu
 
 ### Python Environment & Distribution
 - **Pixi** for package management (10x faster than Conda, with lockfiles)
@@ -213,6 +218,48 @@ The AI chat panel is powered by a LangGraph agent that can interact with all app
 7. **Tool-Backend Binding**: Expose each tab's backend as callable tools for the agent
 8. **LLM Streaming**: Stream agent responses to chat UI while tools execute
 
+## Configuration
+
+The application provides configuration menus for both optimization solvers and AI providers.
+
+### Solver Configuration
+
+| Solver | Type | License | Notes |
+|--------|------|---------|-------|
+| **HiGHS** | LP/MIP | Open Source (MIT) | Default, bundled with app |
+| **Gurobi** | LP/MIP/QP | Commercial | Requires license file |
+| **CPLEX** | LP/MIP/QP | Commercial | Requires license file |
+| **GLPK** | LP/MIP | Open Source (GPL) | Alternative open-source |
+| **SCIP** | MIP | Open Source (Apache) | Academic/research use |
+
+**License file management**: Users can configure paths to solver license files via Settings menu.
+
+### LLM Provider Configuration
+
+| Provider | Type | Notes |
+|----------|------|-------|
+| **OpenAI** | Cloud API | Standard OpenAI SDK, requires API key |
+| **OpenRouter** | Cloud API | Access to multiple models (Claude, GPT, Llama, etc.) |
+| **Ollama** | Local | Run models locally, no API key needed |
+| **Azure OpenAI** | Cloud API | Enterprise deployments |
+| **Custom** | OpenAI-compatible | Any OpenAI SDK-compatible endpoint |
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Settings Menu                                                   │
+│  ├── Optimization                                                │
+│  │   ├── Solver: [HiGHS ▼]                                      │
+│  │   ├── License Path: [Browse...]                              │
+│  │   └── Solver Options: threads, gap tolerance, time limit     │
+│  │                                                               │
+│  └── AI Assistant                                                │
+│      ├── Provider: [OpenRouter ▼]                               │
+│      ├── API Key: [••••••••]                                    │
+│      ├── Model: [claude-3-sonnet ▼]                             │
+│      └── Ollama URL: http://localhost:11434 (if local)          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ## Technology Stack (Proposed)
 
 | Layer | Technology | Notes |
@@ -222,11 +269,13 @@ The AI chat panel is powered by a LangGraph agent that can interact with all app
 | State Management | TBD | Zustand, Jotai, or Redux Toolkit |
 | Desktop Runtime | TBD | Electron or Tauri |
 | Backend Server | FastAPI | Async Python web framework |
-| Backend Runtime | Python 3.10+ | Optimization and data processing |
+| Energy Modeling | PyPSA | Power system analysis and components |
+| Optimization | Linopy | Linear optimization problem modeling |
+| Default Solver | HiGHS | Open-source LP/MIP solver |
 | Package Manager | Pixi | Fast, cross-platform with lockfiles |
 | Distribution | Pixi Pack | Bundle Python env for end users |
 | AI Agent | LangGraph | Tool-using agent for chat interface |
-| LLM Provider | TBD | OpenAI, Anthropic, or local models |
+| LLM Provider | OpenRouter / Ollama / OpenAI | Configurable via settings |
 | Database | SQLite3 | Local network data storage |
 | IPC | HTTP + WebSocket | REST API + streaming via FastAPI |
 
@@ -253,8 +302,8 @@ The AI chat panel is powered by a LangGraph agent that can interact with all app
 │                                      │  └───────────┬──────────────┘  │ │
 │                                      │              │                  │ │
 │                                      │  ┌───────────▼──────────────┐  │ │
-│                                      │  │  Energy Modeling Packages │  │ │
-│                                      │  │  (loaded dynamically)     │  │ │
+│                                      │  │  PyPSA + Linopy          │  │ │
+│                                      │  │  └─► HiGHS / Gurobi      │  │ │
 │                                      │  └───────────┬──────────────┘  │ │
 │                                      └──────────────┼──────────────────┘ │
 └─────────────────────────────────────────────────────┼───────────────────┘
