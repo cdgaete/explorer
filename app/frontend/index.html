@@ -233,11 +233,14 @@
     
     async function loadExampleNetwork() {
       try {
+        console.log('Loading example network...');
         const result = await window.backendAPI.post('/networks/example');
+        console.log('Example loaded:', result);
         await refreshNetworkList();
         selectNetwork(result.id);
       } catch (e) {
         console.error('Failed to load example:', e);
+        alert('Failed to load example network: ' + e.message);
       }
     }
     
@@ -252,21 +255,27 @@
     }
     
     async function refreshNetworkList() {
-      const data = await window.backendAPI.get('/networks');
-      const list = document.getElementById('network-list');
-      
-      if (data.networks.length === 0) {
-        list.innerHTML = '<div class="empty-state">No networks loaded</div>';
-        return;
-      }
-      list.innerHTML = data.networks.map(n => `
-        <div class="network-item ${selectedNetwork === n.id ? 'selected' : ''}" onclick="selectNetwork('${n.id}')">
-          <h3>${n.name}</h3>
-          <div class="stats">
-            ${n.buses} buses · ${n.generators} generators · ${n.lines} lines
+      try {
+        console.log('Refreshing network list...');
+        const data = await window.backendAPI.get('/networks');
+        console.log('Networks:', data);
+        const list = document.getElementById('network-list');
+        
+        if (data.networks.length === 0) {
+          list.innerHTML = '<div class="empty-state">No networks loaded</div>';
+          return;
+        }
+        list.innerHTML = data.networks.map(n => `
+          <div class="network-item ${selectedNetwork === n.id ? 'selected' : ''}" onclick="selectNetwork('${n.id}')">
+            <h3>${n.name}</h3>
+            <div class="stats">
+              ${n.buses} buses · ${n.generators} generators · ${n.lines} lines
+            </div>
           </div>
-        </div>
-      `).join('');
+        `).join('');
+      } catch (e) {
+        console.error('Failed to refresh network list:', e);
+      }
     }
     
     async function selectNetwork(networkId) {
@@ -328,6 +337,11 @@
         data.links, ['name', 'bus0', 'bus1', 'p_nom', 'carrier', 'efficiency']
       );
     }
+    
+    // Expose functions globally for onclick handlers
+    window.loadExampleNetwork = loadExampleNetwork;
+    window.openFileDialog = openFileDialog;
+    window.selectNetwork = selectNetwork;
     
     // Initial load
     refreshNetworkList();

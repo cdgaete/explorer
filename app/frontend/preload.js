@@ -11,17 +11,29 @@ contextBridge.exposeInMainWorld('backendAPI', {
   baseUrl: 'http://127.0.0.1:8000',
   
   async get(endpoint) {
-    const res = await fetch(`http://127.0.0.1:8000${endpoint}`);
-    return res.json();
+    try {
+      const res = await fetch(`http://127.0.0.1:8000${endpoint}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    } catch (e) {
+      console.error(`GET ${endpoint} failed:`, e);
+      throw e;
+    }
   },
   
   async post(endpoint, body) {
-    const res = await fetch(`http://127.0.0.1:8000${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    return res.json();
+    try {
+      const res = await fetch(`http://127.0.0.1:8000${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    } catch (e) {
+      console.error(`POST ${endpoint} failed:`, e);
+      throw e;
+    }
   },
   
   async uploadFile(endpoint, file) {
