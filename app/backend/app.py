@@ -89,6 +89,39 @@ async def load_network(file: UploadFile = File(...)):
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
+from pydantic import BaseModel
+
+class LoadPathRequest(BaseModel):
+    path: str
+
+@app.post("/networks/load-path")
+def load_network_from_path(request: LoadPathRequest):
+    """Load a network from a local file path (.nc or .h5)."""
+    file_path = Path(request.path)
+    
+    if not file_path.exists():
+        raise HTTPException(404, f"File not found: {request.path}")
+    
+    suffix = file_path.suffix.lower()
+    if suffix not in [".nc", ".h5"]:
+        raise HTTPException(400, f"Unsupported file type: {suffix}. Use .nc or .h5")
+    
+    try:
+        n = pypsa.Network(str(file_path))
+        network_id = file_path.stem
+        networks[network_id] = n
+        return {
+            "id": network_id,
+            "name": n.name or network_id,
+            "buses": len(n.buses),
+            "generators": len(n.generators),
+            "lines": len(n.lines),
+            "loads": len(n.loads),
+            "snapshots": len(n.snapshots),
+        }
+    except Exception as e:
+        raise HTTPException(400, f"Failed to load network: {str(e)}")
+
 @app.post("/networks/example")
 def load_example_network():
     """Load PyPSA example network."""

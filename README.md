@@ -489,12 +489,12 @@ Phased approach starting with core infrastructure, then incrementally adding fea
 
 | Task | Status |
 |------|--------|
-| File picker for network files (.nc, .csv) | ⬜ |
-| Load PyPSA network in backend | ⬜ |
-| Persist network to SQLite | ⬜ |
-| Display components in data table | ⬜ |
-| Basic map with node markers | ⬜ |
-| Left panel: network explorer tree | ⬜ |
+| File picker for network files (.nc, .h5) | ⬜ |
+| Load PyPSA network in backend | ✅ |
+| Load example network | ✅ |
+| Display components in data tables | ✅ |
+| Basic map with node markers | ✅ |
+| Left panel: network list | ✅ |
 
 ---
 

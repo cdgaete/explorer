@@ -272,9 +272,16 @@
       const result = await window.electronAPI.openFileDialog();
       if (!result.canceled && result.filePaths.length > 0) {
         const filePath = result.filePaths[0];
-        // For now, we'll use the example - file upload needs FormData
-        alert('File picker selected: ' + filePath + '\nUsing example network for now.');
-        await loadExampleNetwork();
+        try {
+          console.log('Loading file:', filePath);
+          const response = await window.backendAPI.loadFile(filePath);
+          console.log('File loaded:', response);
+          await refreshNetworkList();
+          selectNetwork(response.id);
+        } catch (e) {
+          console.error('Failed to load file:', e);
+          alert('Failed to load network file: ' + e.message);
+        }
       }
     }
     

@@ -45,4 +45,22 @@ contextBridge.exposeInMainWorld('backendAPI', {
     });
     return res.json();
   },
+  
+  async loadFile(filePath) {
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/networks/load-path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      return res.json();
+    } catch (e) {
+      console.error(`Load file failed:`, e);
+      throw e;
+    }
+  },
 });
