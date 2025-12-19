@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Network as NetworkIcon } from 'lucide-react'
+import { Network as NetworkIcon, FolderOpen, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { useNetworkStore, type Network } from '@/stores/networkStore'
 import { api, type NetworkListResponse } from '@/api/client'
 
@@ -107,12 +108,54 @@ export function Sidebar() {
     return () => clearInterval(interval)
   }, [setNetworks, addNetwork])
 
+  const handleLoadExample = async () => {
+    try {
+      const result = await api.post<{ id: string; name: string }>('/networks/example')
+      addNetwork({
+        id: result.id,
+        name: result.name,
+        buses: 0,
+        generators: 0,
+        lines: 0,
+        loads: 0,
+        links: 0,
+        optStatus: 'idle',
+      })
+      selectNetwork(result.id)
+    } catch (e) {
+      console.error('Failed to load example:', e)
+    }
+  }
+
+  const handleOpenFile = async () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.nc,.h5,.hdf5'
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0]
+      if (file) {
+        console.log('Selected file:', file.name)
+      }
+    }
+    input.click()
+  }
+
   return (
     <div className="flex flex-col h-full bg-card">
-      <div className="px-4 py-3 border-b border-border">
+      <div className="px-3 py-3 border-b border-border space-y-3">
         <h2 className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
           Networks
         </h2>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={handleLoadExample}>
+            <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+            Example
+          </Button>
+          <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={handleOpenFile}>
+            <FolderOpen className="h-3.5 w-3.5 mr-1.5" />
+            Open
+          </Button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {networks.length === 0 ? (

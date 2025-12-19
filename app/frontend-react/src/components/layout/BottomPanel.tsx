@@ -1,14 +1,26 @@
 import { useState } from 'react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
+import { Button } from '@/components/ui/button'
 import { useNetworkStore } from '@/stores/networkStore'
-import { ScrollText, Gauge } from 'lucide-react'
+import { api } from '@/api/client'
+import { ScrollText, Gauge, Play, Square } from 'lucide-react'
 
 export function BottomPanel() {
   const [activeTab, setActiveTab] = useState('optimization')
-  const { optimization, selectedNetworkId } = useNetworkStore()
+  const { optimization, selectedNetworkId, networks } = useNetworkStore()
 
-  const showProgress = optimization.status === 'running' || optimization.status === 'starting'
+  const isOptimizing = optimization.status === 'running' || optimization.status === 'starting'
+  const selectedNetwork = networks.find((n) => n.id === selectedNetworkId)
+
+  const handleRunOptimization = async () => {
+    if (!selectedNetworkId) return
+    try {
+      await api.post(`/networks/${selectedNetworkId}/optimize`)
+    } catch (e) {
+      console.error('Optimization failed:', e)
+    }
+  }
 
   return (
     <div className="flex flex-col h-full bg-card border-t border-border">
@@ -30,41 +42,69 @@ export function BottomPanel() {
               Select a network to run optimization
             </div>
           ) : (
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <span className="text-sm font-medium">Status:</span>
-                <span className={`text-sm ${
-                  optimization.status === 'completed' ? 'text-green-500' :
-                  optimization.status === 'failed' ? 'text-destructive' :
-                  optimization.status === 'running' ? 'text-primary' :
-                  'text-muted-foreground'
-                }`}>
-                  {optimization.status === 'idle' ? 'Ready' :
-                   optimization.status === 'starting' ? 'Starting...' :
-                   optimization.status === 'running' ? 'Running...' :
-                   optimization.status === 'completed' ? 'Completed' :
-                   'Failed'}
-                </span>
+            <div className="flex gap-6">
+              {/* Left: Run button */}
+              <div className="flex flex-col gap-3">
+                <Button
+                  size="lg"
+                  className="h-16 w-32"
+                  onClick={handleRunOptimization}
+                  disabled={isOptimizing}
+                >
+                  {isOptimizing ? (
+                    <>
+                      <Square className="h-5 w-5 mr-2" />
+                      Stop
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-5 w-5 mr-2" />
+                      Run
+                    </>
+                  )}
+                </Button>
+                <div className="text-xs text-muted-foreground text-center">
+                  Solver: HiGHS
+                </div>
               </div>
 
-              {showProgress && (
-                <div className="space-y-2">
-                  <Progress value={optimization.progress} className="h-2" />
-                  <p className="text-xs text-muted-foreground">
-                    {optimization.message || `Progress: ${optimization.progress}%`}
-                  </p>
+              {/* Right: Status and progress */}
+              <div className="flex-1 space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">Network:</span>
+                  <span className="text-sm font-medium">{selectedNetwork?.name}</span>
                 </div>
-              )}
 
-              {optimization.status === 'failed' && optimization.error && (
-                <div className="p-3 rounded bg-destructive/10 text-destructive text-sm">
-                  {optimization.error}
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">Status:</span>
+                  <span className={`text-sm font-medium ${
+                    optimization.status === 'completed' ? 'text-green-500' :
+                    optimization.status === 'failed' ? 'text-destructive' :
+                    optimization.status === 'running' ? 'text-primary' :
+                    'text-muted-foreground'
+                  }`}>
+                    {optimization.status === 'idle' ? 'Ready' :
+                     optimization.status === 'starting' ? 'Starting...' :
+                     optimization.status === 'running' ? 'Running...' :
+                     optimization.status === 'completed' ? 'Completed' :
+                     'Failed'}
+                  </span>
                 </div>
-              )}
 
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p>Solver: HiGHS (default)</p>
-                <p>Network: {selectedNetworkId}</p>
+                {isOptimizing && (
+                  <div className="space-y-1.5">
+                    <Progress value={optimization.progress} className="h-2" />
+                    <p className="text-xs text-muted-foreground">
+                      {optimization.message || `Progress: ${optimization.progress}%`}
+                    </p>
+                  </div>
+                )}
+
+                {optimization.status === 'failed' && optimization.error && (
+                  <div className="p-2 rounded bg-destructive/10 text-destructive text-xs">
+                    {optimization.error}
+                  </div>
+                )}
               </div>
             </div>
           )}
