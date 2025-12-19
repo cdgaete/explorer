@@ -1,7 +1,7 @@
 """
 Energy Network Explorer - FastAPI Backend
 """
-from fastapi import FastAPI, WebSocket, UploadFile, File, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import pypsa
@@ -10,9 +10,18 @@ import numpy as np
 from pathlib import Path
 import tempfile
 import shutil
+import asyncio
+from pydantic import BaseModel
+from datetime import datetime
 
 # Store loaded networks in memory
 networks: dict[str, pypsa.Network] = {}
+
+# Store active WebSocket connections
+active_connections: list[WebSocket] = []
+
+# Store optimization status
+optimization_status: dict[str, dict] = {}
 
 def clean_for_json(df):
     """Replace inf/-inf/nan with None for JSON serialization."""
@@ -103,7 +112,6 @@ async def load_network(file: UploadFile = File(...)):
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
-from pydantic import BaseModel
 
 class LoadPathRequest(BaseModel):
     path: str
@@ -241,17 +249,191 @@ def delete_network(network_id: str):
     del networks[network_id]
     return {"deleted": network_id}
 
+async def broadcast(message: dict):
+    """Broadcast message to all connected WebSocket clients."""
+    for connection in active_connections:
+        try:
+            await connection.send_json(message)
+        except Exception:
+            pass
+
+class OptimizeRequest(BaseModel):
+    solver: str = "highs"
+
+@app.post("/networks/{network_id}/optimize")
+async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeRequest()):
+    """Run optimization on a network."""
+    if network_id not in networks:
+        raise HTTPException(404, f"Network '{network_id}' not found")
+    
+    if network_id in optimization_status and optimization_status[network_id].get("running"):
+        raise HTTPException(400, f"Optimization already running for '{network_id}'")
+    
+    n = networks[network_id]
+    
+    # Initialize status
+    optimization_status[network_id] = {
+        "running": True,
+        "progress": 0,
+        "status": "starting",
+        "started_at": datetime.now().isoformat(),
+    }
+    
+    await broadcast({
+        "type": "optimization_status",
+        "network_id": network_id,
+        "status": "starting",
+        "progress": 0,
+    })
+    
+    try:
+        await broadcast({
+            "type": "optimization_status", 
+            "network_id": network_id,
+            "status": "running",
+            "progress": 10,
+            "message": "Building optimization model...",
+        })
+        
+        loop = asyncio.get_event_loop()
+        
+        def run_optimize():
+            return n.optimize(solver_name=request.solver)
+        
+        await broadcast({
+            "type": "optimization_status",
+            "network_id": network_id, 
+            "status": "running",
+            "progress": 30,
+            "message": "Solving optimization problem...",
+        })
+        
+        status, termination = await loop.run_in_executor(None, run_optimize)
+        
+        await broadcast({
+            "type": "optimization_status",
+            "network_id": network_id,
+            "status": "running", 
+            "progress": 90,
+            "message": "Extracting results...",
+        })
+        
+        objective_obj = n.objective if hasattr(n, 'objective') else None
+        objective = float(objective_obj) if objective_obj is not None else None
+        
+        optimization_status[network_id] = {
+            "running": False,
+            "progress": 100,
+            "status": "completed",
+            "termination": termination,
+            "objective": objective,
+            "completed_at": datetime.now().isoformat(),
+        }
+        
+        await broadcast({
+            "type": "optimization_status",
+            "network_id": network_id,
+            "status": "completed",
+            "progress": 100,
+            "termination": termination,
+            "objective": objective,
+        })
+        
+        return {
+            "status": "completed",
+            "termination": termination,
+            "objective": objective,
+        }
+        
+    except Exception as e:
+        optimization_status[network_id] = {
+            "running": False,
+            "progress": 0,
+            "status": "failed",
+            "error": str(e),
+        }
+        
+        await broadcast({
+            "type": "optimization_status",
+            "network_id": network_id,
+            "status": "failed",
+            "error": str(e),
+        })
+        
+        raise HTTPException(500, f"Optimization failed: {str(e)}")
+
+@app.get("/networks/{network_id}/optimization-status")
+def get_optimization_status(network_id: str):
+    """Get current optimization status."""
+    if network_id not in networks:
+        raise HTTPException(404, f"Network '{network_id}' not found")
+    return optimization_status.get(network_id, {"status": "idle"})
+
+@app.get("/networks/{network_id}/results")
+def get_results(network_id: str):
+    """Get optimization results."""
+    if network_id not in networks:
+        raise HTTPException(404, f"Network '{network_id}' not found")
+    n = networks[network_id]
+    
+    if not hasattr(n, 'objective') or n.objective is None:
+        raise HTTPException(400, "Network has not been optimized yet")
+    
+    results = {
+        "objective": float(n.objective) if n.objective else None,
+        "generators_p_nom_opt": clean_for_json(
+            n.generators[["bus", "carrier", "p_nom", "p_nom_opt"]].reset_index()
+        ) if "p_nom_opt" in n.generators.columns else [],
+        "lines_s_nom_opt": clean_for_json(
+            n.lines[["bus0", "bus1", "s_nom", "s_nom_opt"]].reset_index()
+        ) if "s_nom_opt" in n.lines.columns else [],
+    }
+    return results
+
+class StatisticsRequest(BaseModel):
+    statistic: str = "energy_balance"
+    groupby: str = "carrier"
+    
+@app.post("/networks/{network_id}/statistics")
+def get_statistics(network_id: str, request: StatisticsRequest):
+    """Get network statistics using PyPSA's statistics module."""
+    if network_id not in networks:
+        raise HTTPException(404, f"Network '{network_id}' not found")
+    n = networks[network_id]
+    
+    allowed_statistics = [
+        "energy_balance", "supply", "withdrawal", "curtailment",
+        "capacity_factor", "revenue", "market_value", "optimal_capacity"
+    ]
+    
+    if request.statistic not in allowed_statistics:
+        raise HTTPException(400, f"Invalid statistic. Allowed: {allowed_statistics}")
+    
+    try:
+        stat_func = getattr(n.statistics, request.statistic)
+        result = stat_func(groupby=request.groupby)
+        
+        # Convert to JSON-serializable format
+        if hasattr(result, 'to_dict'):
+            return {"data": result.to_dict()}
+        return {"data": result}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to compute statistics: {str(e)}")
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket for real-time updates."""
     await websocket.accept()
+    active_connections.append(websocket)
     try:
         while True:
             data = await websocket.receive_text()
             msg = json.loads(data)
-            # Echo back for now - will be used for optimization progress
             await websocket.send_json({"type": "ack", "received": msg})
+    except WebSocketDisconnect:
+        pass
     except Exception as e:
         print(f"WebSocket error: {e}")
     finally:
-        await websocket.close()
+        if websocket in active_connections:
+            active_connections.remove(websocket)

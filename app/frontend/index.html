@@ -178,6 +178,46 @@
       width: 100%;
       background: var(--bg-tertiary);
     }
+    /* Progress bar */
+    .progress-container {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+    }
+    .progress-container.active { display: flex; }
+    .progress-bar {
+      flex: 1;
+      height: 6px;
+      background: var(--bg-tertiary);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.3s;
+    }
+    .progress-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      min-width: 100px;
+    }
+    /* Results */
+    .result-card {
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .result-card h3 {
+      margin-bottom: 12px;
+      color: var(--accent);
+    }
+    .result-value {
+      font-size: 24px;
+      font-weight: bold;
+    }
   </style>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -187,7 +227,8 @@
     <h1>⚡ Energy Network Explorer</h1>
     <div class="header-actions">
       <button onclick="loadExampleNetwork()">Load Example</button>
-      <button onclick="openFileDialog()" class="primary">Open Network</button>
+      <button onclick="openFileDialog()">Open Network</button>
+      <button onclick="runOptimization()" class="primary" id="optimize-btn" disabled>Run Optimization</button>
     </div>
   </div>
   
@@ -207,6 +248,7 @@
         <div class="tab" data-tab="lines">Lines</div>
         <div class="tab" data-tab="loads">Loads</div>
         <div class="tab" data-tab="links">Links</div>
+        <div class="tab" data-tab="results">Results</div>
       </div>
       
       <div class="tab-content">
@@ -216,6 +258,7 @@
         <div id="lines" class="tab-panel"></div>
         <div id="loads" class="tab-panel"></div>
         <div id="links" class="tab-panel"></div>
+        <div id="results" class="tab-panel"></div>
       </div>
     </div>
   </div>
@@ -225,12 +268,108 @@
       <div class="status-dot"></div>
       <span id="status-text">Connected to backend</span>
     </div>
+    <div class="progress-container" id="progress-container">
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+      </div>
+      <span class="progress-text" id="progress-text">0%</span>
+    </div>
     <span id="network-info">No network selected</span>
   </div>
   <script>
     let selectedNetwork = null;
     let map = null;
     let mapLayers = { buses: null, lines: null, links: null };
+    let ws = null;
+    
+    // Initialize WebSocket connection
+    function initWebSocket() {
+      ws = new WebSocket('ws://127.0.0.1:8000/ws');
+      ws.onopen = () => console.log('WebSocket connected');
+      ws.onclose = () => {
+        console.log('WebSocket disconnected, reconnecting...');
+        setTimeout(initWebSocket, 2000);
+      };
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        handleWebSocketMessage(msg);
+      };
+    }
+    
+    function handleWebSocketMessage(msg) {
+      console.log('WS message:', msg);
+      if (msg.type === 'optimization_status') {
+        updateOptimizationProgress(msg);
+      }
+    }
+    
+    function updateOptimizationProgress(msg) {
+      const container = document.getElementById('progress-container');
+      const fill = document.getElementById('progress-fill');
+      const text = document.getElementById('progress-text');
+      const btn = document.getElementById('optimize-btn');
+      
+      if (msg.status === 'starting' || msg.status === 'running') {
+        container.classList.add('active');
+        fill.style.width = msg.progress + '%';
+        text.textContent = msg.message || `${msg.progress}%`;
+        btn.disabled = true;
+        btn.textContent = 'Optimizing...';
+      } else if (msg.status === 'completed') {
+        container.classList.remove('active');
+        fill.style.width = '100%';
+        text.textContent = 'Complete!';
+        btn.disabled = false;
+        btn.textContent = 'Run Optimization';
+        // Load results
+        if (selectedNetwork) loadResults(selectedNetwork);
+      } else if (msg.status === 'failed') {
+        container.classList.remove('active');
+        btn.disabled = false;
+        btn.textContent = 'Run Optimization';
+        alert('Optimization failed: ' + msg.error);
+      }
+    }
+    
+    async function runOptimization() {
+      if (!selectedNetwork) {
+        alert('Please select a network first');
+        return;
+      }
+      try {
+        console.log('Starting optimization for:', selectedNetwork);
+        await window.backendAPI.post(`/networks/${selectedNetwork}/optimize`);
+      } catch (e) {
+        console.error('Optimization request failed:', e);
+      }
+    }
+    
+    async function loadResults(networkId) {
+      try {
+        const data = await window.backendAPI.get(`/networks/${networkId}/results`);
+        const html = `
+          <div class="result-card">
+            <h3>Optimization Results</h3>
+            <p>Objective Value:</p>
+            <div class="result-value">${data.objective ? data.objective.toLocaleString() : 'N/A'}</div>
+          </div>
+          ${data.generators_p_nom_opt.length > 0 ? `
+            <h3>Generator Capacities (p_nom_opt)</h3>
+            ${renderTable(data.generators_p_nom_opt, ['name', 'bus', 'carrier', 'p_nom', 'p_nom_opt'])}
+          ` : ''}
+          ${data.lines_s_nom_opt.length > 0 ? `
+            <h3>Line Capacities (s_nom_opt)</h3>
+            ${renderTable(data.lines_s_nom_opt, ['name', 'bus0', 'bus1', 's_nom', 's_nom_opt'])}
+          ` : ''}
+        `;
+        document.getElementById('results').innerHTML = html;
+      } catch (e) {
+        document.getElementById('results').innerHTML = '<div class="empty-state">No optimization results yet. Click "Run Optimization" to solve the network.</div>';
+      }
+    }
+    
+    // Initialize WebSocket on load
+    initWebSocket();
     
     // Initialize map
     function initMap() {
@@ -311,6 +450,7 @@
     
     async function selectNetwork(networkId) {
       selectedNetwork = networkId;
+      document.getElementById('optimize-btn').disabled = false;
       await refreshNetworkList();
       document.getElementById('network-info').textContent = `Network: ${networkId}`;
       
@@ -323,6 +463,9 @@
         loadLoads(networkId),
         loadLinks(networkId),
       ]);
+      
+      // Try to load results if they exist
+      loadResults(networkId);
     }
     
     async function loadMap(networkId) {
@@ -431,6 +574,7 @@
     window.loadExampleNetwork = loadExampleNetwork;
     window.openFileDialog = openFileDialog;
     window.selectNetwork = selectNetwork;
+    window.runOptimization = runOptimization;
     
     // Initial load
     refreshNetworkList();

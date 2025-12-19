@@ -13,6 +13,7 @@ pypsa = ">=1.0"
 pandas = ">=2.0"
 numpy = ">=1.26"
 highs = ">=1.7"
+pydantic = ">=2.0"
 
 [tasks]
 serve = "uvicorn app:app --host 127.0.0.1 --port 8000 --reload"
