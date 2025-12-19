@@ -393,6 +393,14 @@ def get_results(network_id: str):
 class StatisticsRequest(BaseModel):
     statistic: str = "energy_balance"
     groupby: str = "carrier"
+
+# Full list of allowed statistics (from pypsa-app)
+ALLOWED_STATISTICS = [
+    "capex", "installed_capex", "expanded_capex", "opex", "system_cost",
+    "revenue", "market_value", "installed_capacity", "expanded_capacity",
+    "optimal_capacity", "supply", "withdrawal", "curtailment",
+    "capacity_factor", "transmission", "energy_balance"
+]
     
 @app.post("/networks/{network_id}/statistics")
 def get_statistics(network_id: str, request: StatisticsRequest):
@@ -401,13 +409,8 @@ def get_statistics(network_id: str, request: StatisticsRequest):
         raise HTTPException(404, f"Network '{network_id}' not found")
     n = networks[network_id]
     
-    allowed_statistics = [
-        "energy_balance", "supply", "withdrawal", "curtailment",
-        "capacity_factor", "revenue", "market_value", "optimal_capacity"
-    ]
-    
-    if request.statistic not in allowed_statistics:
-        raise HTTPException(400, f"Invalid statistic. Allowed: {allowed_statistics}")
+    if request.statistic not in ALLOWED_STATISTICS:
+        raise HTTPException(400, f"Invalid statistic. Allowed: {ALLOWED_STATISTICS}")
     
     try:
         stat_func = getattr(n.statistics, request.statistic)
@@ -419,6 +422,126 @@ def get_statistics(network_id: str, request: StatisticsRequest):
         return {"data": result}
     except Exception as e:
         raise HTTPException(500, f"Failed to compute statistics: {str(e)}")
+
+@app.get("/networks/{network_id}/statistics/available")
+def get_available_statistics(network_id: str):
+    """List available statistics methods."""
+    if network_id not in networks:
+        raise HTTPException(404, f"Network '{network_id}' not found")
+    return {"statistics": ALLOWED_STATISTICS}
+
+@app.get("/networks/{network_id}/metadata")
+def get_network_metadata(network_id: str):
+    """Get detailed network metadata including carriers, countries, dimensions."""
+    if network_id not in networks:
+        raise HTTPException(404, f"Network '{network_id}' not found")
+    n = networks[network_id]
+    
+    # Extract carriers info
+    carriers = {}
+    for carrier_name in n.buses.carrier.unique():
+        carrier_info = {}
+        if carrier_name in n.carriers.index:
+            carrier_data = n.carriers.loc[carrier_name].to_dict()
+            # Filter out NaN/Inf values
+            carrier_info = {
+                k: v for k, v in carrier_data.items()
+                if not (isinstance(v, float) and (np.isnan(v) or np.isinf(v)))
+            }
+        carriers[carrier_name] = carrier_info
+    
+    # Extract countries if available
+    countries = []
+    if "country" in n.buses.columns:
+        countries = sorted(n.buses["country"].dropna().unique().tolist())
+    
+    # Dimensions
+    dimensions = {
+        "snapshots": len(n.snapshots),
+        "investment_periods": len(n.investment_periods) if hasattr(n, 'investment_periods') else 1,
+    }
+    
+    # Component counts
+    components = {
+        "buses": len(n.buses),
+        "generators": len(n.generators),
+        "lines": len(n.lines),
+        "links": len(n.links),
+        "loads": len(n.loads),
+        "storage_units": len(n.storage_units),
+        "stores": len(n.stores),
+    }
+    
+    return {
+        "id": network_id,
+        "name": n.name or network_id,
+        "carriers": carriers,
+        "countries": countries,
+        "dimensions": dimensions,
+        "components": components,
+    }
+
+@app.get("/networks/{network_id}/topology.svg")
+def get_topology_svg(network_id: str):
+    """Generate simple SVG topology visualization."""
+    from fastapi.responses import Response
+    
+    if network_id not in networks:
+        raise HTTPException(404, f"Network '{network_id}' not found")
+    n = networks[network_id]
+    
+    # Check if buses have coordinates
+    if "x" not in n.buses.columns or "y" not in n.buses.columns:
+        raise HTTPException(400, "Network buses don't have x/y coordinates")
+    
+    bus_pos = n.buses[["x", "y"]].dropna()
+    if len(bus_pos) == 0:
+        raise HTTPException(400, "No buses with valid coordinates")
+    
+    width, height, padding = 400, 300, 20
+    
+    # Calculate bounds
+    min_x, max_x = bus_pos["x"].min(), bus_pos["x"].max()
+    min_y, max_y = bus_pos["y"].min(), bus_pos["y"].max()
+    x_range = max_x - min_x or 1
+    y_range = max_y - min_y or 1
+    
+    def norm(x, y):
+        nx = padding + (x - min_x) / x_range * (width - 2 * padding)
+        ny = height - (padding + (y - min_y) / y_range * (height - 2 * padding))
+        return nx, ny
+    
+    svg = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}">',
+        '<style>',
+        '.line{stroke:#666;stroke-width:2;stroke-opacity:0.6}',
+        '.link{stroke:#e74c3c;stroke-width:2;stroke-opacity:0.6;stroke-dasharray:4,2}',
+        '.bus{fill:#3498db}',
+        '</style>',
+    ]
+    
+    # Draw lines
+    for _, line in n.lines.iterrows():
+        if line.bus0 in bus_pos.index and line.bus1 in bus_pos.index:
+            x0, y0 = norm(bus_pos.loc[line.bus0, "x"], bus_pos.loc[line.bus0, "y"])
+            x1, y1 = norm(bus_pos.loc[line.bus1, "x"], bus_pos.loc[line.bus1, "y"])
+            svg.append(f'<line class="line" x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}"/>')
+    
+    # Draw links (dashed)
+    for _, link in n.links.iterrows():
+        if link.bus0 in bus_pos.index and link.bus1 in bus_pos.index:
+            x0, y0 = norm(bus_pos.loc[link.bus0, "x"], bus_pos.loc[link.bus0, "y"])
+            x1, y1 = norm(bus_pos.loc[link.bus1, "x"], bus_pos.loc[link.bus1, "y"])
+            svg.append(f'<line class="link" x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}"/>')
+    
+    # Draw buses
+    for idx, row in bus_pos.iterrows():
+        x, y = norm(row["x"], row["y"])
+        svg.append(f'<circle class="bus" cx="{x:.1f}" cy="{y:.1f}" r="4"/>')
+    
+    svg.append('</svg>')
+    
+    return Response(content="".join(svg), media_type="image/svg+xml")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

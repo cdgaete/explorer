@@ -13,10 +13,18 @@ contextBridge.exposeInMainWorld('backendAPI', {
   async get(endpoint) {
     try {
       const res = await fetch(`http://127.0.0.1:8000${endpoint}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // Don't log 400 errors for /results endpoint (expected when not optimized)
+        if (!(res.status === 400 && endpoint.includes('/results'))) {
+          console.error(`GET ${endpoint} failed: HTTP ${res.status}`);
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
       return res.json();
     } catch (e) {
-      console.error(`GET ${endpoint} failed:`, e);
+      if (!e.message.startsWith('HTTP')) {
+        console.error(`GET ${endpoint} failed:`, e);
+      }
       throw e;
     }
   },
