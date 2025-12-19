@@ -29,6 +29,9 @@ active_connections: list[WebSocket] = []
 # Store optimization status
 optimization_status: dict[str, dict] = {}
 
+# Store running optimization tasks for cancellation
+optimization_tasks: dict[str, asyncio.Task] = {}
+
 # Queue for log messages from optimization
 log_queue: queue.Queue = queue.Queue()
 
@@ -519,6 +522,38 @@ def get_optimization_status(network_id: str):
     if network_id not in networks:
         raise HTTPException(404, f"Network '{network_id}' not found")
     return optimization_status.get(network_id, {"status": "idle"})
+
+@app.post("/networks/{network_id}/cancel-optimization")
+async def cancel_optimization(network_id: str):
+    """Cancel a running optimization."""
+    if network_id not in networks:
+        raise HTTPException(404, f"Network '{network_id}' not found")
+
+    status = optimization_status.get(network_id, {})
+    if not status.get("running"):
+        raise HTTPException(400, "No optimization is running for this network")
+
+    # Cancel the task if it exists
+    task = optimization_tasks.get(network_id)
+    if task and not task.done():
+        task.cancel()
+
+    # Update status
+    optimization_status[network_id] = {
+        "running": False,
+        "progress": 0,
+        "status": "cancelled",
+        "cancelled_at": datetime.now().isoformat(),
+    }
+
+    await broadcast({
+        "type": "optimization_status",
+        "network_id": network_id,
+        "status": "cancelled",
+        "progress": 0,
+    })
+
+    return {"status": "cancelled"}
 
 @app.get("/networks/{network_id}/results")
 def get_results(network_id: str):
