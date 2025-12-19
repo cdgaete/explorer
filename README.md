@@ -18,13 +18,20 @@ Build a modern desktop application that enables users to:
 - Responsive panel-based layout with collapsible sections
 
 ### Backend
-- **Python** for energy modeling and optimization
+- **FastAPI** server running as subprocess for API and WebSocket communication
+- **Python 3.10+** for energy modeling and optimization
 - **SQLite3** databases (`.db` files) to store network data, queried by the frontend
 - Support for loading external Python packages dynamically
 - Long-running optimization processes with progress tracking
 
+### Python Environment & Distribution
+- **Pixi** for package management (10x faster than Conda, with lockfiles)
+- **Pixi Pack** for bundling Python environment into distributable archives
+- Self-extracting executables for end-user distribution (no Python/Conda install required)
+- Cross-platform builds from single manifest (`pixi.toml`)
+
 ### Desktop Framework
-> **To investigate:** Electron, Tauri, or other modern alternatives for optimal Python + React integration
+> **To investigate:** Electron or Tauri for optimal Python subprocess + React integration
 
 ## Application Layout
 
@@ -160,29 +167,86 @@ The AI chat panel is powered by a LangGraph agent that can interact with all app
 | UI Framework | React 18+ | Modern React with hooks |
 | UI Components | shadcn/ui | Tailwind-based, accessible |
 | State Management | TBD | Zustand, Jotai, or Redux Toolkit |
-| Desktop Runtime | TBD | Electron, Tauri, or Neutralino |
-| Backend | Python 3.10+ | Optimization and data processing |
+| Desktop Runtime | TBD | Electron or Tauri |
+| Backend Server | FastAPI | Async Python web framework |
+| Backend Runtime | Python 3.10+ | Optimization and data processing |
+| Package Manager | Pixi | Fast, cross-platform with lockfiles |
+| Distribution | Pixi Pack | Bundle Python env for end users |
 | AI Agent | LangGraph | Tool-using agent for chat interface |
 | LLM Provider | TBD | OpenAI, Anthropic, or local models |
 | Database | SQLite3 | Local network data storage |
-| IPC | TBD | WebSocket, HTTP, or native bindings |
+| IPC | HTTP + WebSocket | REST API + streaming via FastAPI |
+
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Desktop Application                              │
+│  ┌────────────────────────────────┐  ┌────────────────────────────────┐ │
+│  │     Electron / Tauri Shell     │  │   Pixi-Packed Python Env       │ │
+│  │  ┌──────────────────────────┐  │  │  ┌──────────────────────────┐  │ │
+│  │  │      React Frontend      │  │  │  │     FastAPI Server       │  │ │
+│  │  │      + shadcn/ui         │◄─┼──┼─►│     (subprocess)         │  │ │
+│  │  │                          │  │  │  │                          │  │ │
+│  │  │  - Network Maps          │  │  │  │  - REST endpoints        │  │ │
+│  │  │  - Data Tables           │ WS │  │  - WebSocket streaming    │  │ │
+│  │  │  - Charts                │HTTP│  │  - Background tasks       │  │ │
+│  │  │  - AI Chat Panel         │  │  │  │                          │  │ │
+│  │  └──────────────────────────┘  │  │  └───────────┬──────────────┘  │ │
+│  └────────────────────────────────┘  │              │                  │ │
+│                                      │  ┌───────────▼──────────────┐  │ │
+│                                      │  │    LangGraph Agent       │  │ │
+│                                      │  │    + Tool Registry       │  │ │
+│                                      │  └───────────┬──────────────┘  │ │
+│                                      │              │                  │ │
+│                                      │  ┌───────────▼──────────────┐  │ │
+│                                      │  │  Energy Modeling Packages │  │ │
+│                                      │  │  (loaded dynamically)     │  │ │
+│                                      │  └───────────┬──────────────┘  │ │
+│                                      └──────────────┼──────────────────┘ │
+└─────────────────────────────────────────────────────┼───────────────────┘
+                                                      │
+                                          ┌───────────▼──────────────┐
+                                          │     SQLite3 Database     │
+                                          │   (network_data.db)      │
+                                          └──────────────────────────┘
+```
+
+### Communication Flow
+
+1. **App Startup**: Electron/Tauri spawns FastAPI from Pixi environment
+2. **API Calls**: React frontend calls REST endpoints for data operations
+3. **Streaming**: WebSocket for real-time logs, optimization progress, and LLM responses
+4. **Agent Tools**: LangGraph agent executes tools that query backends and database
+
+## Distribution with Pixi Pack
+
+```bash
+# Development: manage environment with pixi
+pixi install                    # Install all dependencies
+pixi run dev                    # Start development servers
+pixi run test                   # Run tests
+
+# Production: create distributable package
+pixi-pack --platform linux-64 --create-executable dist/explorer-linux.sh
+pixi-pack --platform win-64 --create-executable dist/explorer-win.ps1
+pixi-pack --platform osx-arm64 --create-executable dist/explorer-macos.sh
+```
+
+**End-user experience**: Download → Extract → Run (no Python installation needed)
 
 ## Framework Evaluation
 
-### Candidates to Investigate
+### Desktop Runtime Candidates
 
 | Framework | Pros | Cons |
 |-----------|------|------|
-| **Electron** | Mature, large ecosystem, easy Python subprocess | Large bundle size, high memory |
-| **Tauri** | Small bundle, Rust backend, secure | Python requires subprocess/sidecar |
-| **Neutralino** | Lightweight, simple | Less mature ecosystem |
-| **PyWebView** | Native Python integration | Less React-friendly |
-| **Wails** | Go backend, small size | No native Python support |
+| **Electron** | Mature, large ecosystem, easy subprocess management | Large bundle size (~150MB+), high memory |
+| **Tauri** | Small bundle (~10MB), Rust backend, secure, sidecar pattern | Newer, smaller ecosystem |
 
 ### Key Evaluation Criteria
-- Python package loading and execution
-- Long-running process management
-- SQLite3 integration
+- Python subprocess lifecycle management
+- WebSocket support for streaming
 - Bundle size and performance
 - Cross-platform support
 - Developer experience
