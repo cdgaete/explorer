@@ -22,9 +22,12 @@ const TABS = [
 
 export function MainContent() {
   const { activeTab, setActiveTab } = useLayoutStore()
-  const { selectedNetworkId } = useNetworkStore()
+  const { selectedNetworkId, networks } = useNetworkStore()
 
-  if (!selectedNetworkId) {
+  // Check if selected network actually exists in the loaded networks
+  const selectedNetwork = networks.find(n => n.id === selectedNetworkId)
+
+  if (!selectedNetworkId || !selectedNetwork) {
     return (
       <div className="flex items-center justify-center h-full bg-background text-muted-foreground">
         <div className="text-center">

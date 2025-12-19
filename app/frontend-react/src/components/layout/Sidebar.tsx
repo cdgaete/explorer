@@ -99,6 +99,11 @@ export function Sidebar() {
         )
 
         setNetworks(networksWithStatus)
+
+        // Clear selection if selected network no longer exists
+        if (selectedNetworkId && !networksWithStatus.some(n => n.id === selectedNetworkId)) {
+          selectNetwork(null)
+        }
       } catch (e) {
         console.error('Failed to fetch networks:', e)
       }
@@ -108,7 +113,7 @@ export function Sidebar() {
     // Refresh every 5 seconds while connected
     const interval = setInterval(fetchNetworks, 5000)
     return () => clearInterval(interval)
-  }, [setNetworks, addNetwork, wsConnected])
+  }, [setNetworks, addNetwork, wsConnected, selectedNetworkId, selectNetwork])
 
   const handleLoadExample = async () => {
     try {
