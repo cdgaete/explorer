@@ -6,12 +6,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import pypsa
 import json
+import numpy as np
 from pathlib import Path
 import tempfile
 import shutil
 
 # Store loaded networks in memory
 networks: dict[str, pypsa.Network] = {}
+
+def clean_for_json(df):
+    """Replace inf/-inf/nan with None for JSON serialization."""
+    df = df.copy()
+    for col in df.select_dtypes(include=[np.floating]).columns:
+        df[col] = df[col].replace([np.inf, -np.inf], np.nan)
+    # Convert to records, replacing NaN with None
+    records = df.to_dict(orient="records")
+    for record in records:
+        for key, value in record.items():
+            if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+                record[key] = None
+    return records
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -163,9 +177,11 @@ def get_buses(network_id: str):
     if network_id not in networks:
         raise HTTPException(404, f"Network '{network_id}' not found")
     n = networks[network_id]
-    df = n.buses[["x", "y", "v_nom", "carrier"]].copy()
+    cols = ["x", "y", "v_nom", "carrier"]
+    cols = [c for c in cols if c in n.buses.columns]
+    df = n.buses[cols].copy()
     df.index.name = "name"
-    return {"buses": df.reset_index().to_dict(orient="records")}
+    return {"buses": clean_for_json(df.reset_index())}
 
 @app.get("/networks/{network_id}/generators")
 def get_generators(network_id: str):
@@ -177,7 +193,7 @@ def get_generators(network_id: str):
     cols = [c for c in cols if c in n.generators.columns]
     df = n.generators[cols].copy()
     df.index.name = "name"
-    return {"generators": df.reset_index().to_dict(orient="records")}
+    return {"generators": clean_for_json(df.reset_index())}
 
 @app.get("/networks/{network_id}/lines")
 def get_lines(network_id: str):
@@ -189,7 +205,7 @@ def get_lines(network_id: str):
     cols = [c for c in cols if c in n.lines.columns]
     df = n.lines[cols].copy()
     df.index.name = "name"
-    return {"lines": df.reset_index().to_dict(orient="records")}
+    return {"lines": clean_for_json(df.reset_index())}
 
 @app.get("/networks/{network_id}/loads")
 def get_loads(network_id: str):
@@ -201,7 +217,7 @@ def get_loads(network_id: str):
     cols = [c for c in cols if c in n.loads.columns]
     df = n.loads[cols].copy()
     df.index.name = "name"
-    return {"loads": df.reset_index().to_dict(orient="records")}
+    return {"loads": clean_for_json(df.reset_index())}
 
 @app.get("/networks/{network_id}/links")
 def get_links(network_id: str):
@@ -215,7 +231,7 @@ def get_links(network_id: str):
     cols = [c for c in cols if c in n.links.columns]
     df = n.links[cols].copy()
     df.index.name = "name"
-    return {"links": df.reset_index().to_dict(orient="records")}
+    return {"links": clean_for_json(df.reset_index())}
 
 @app.delete("/networks/{network_id}")
 def delete_network(network_id: str):
