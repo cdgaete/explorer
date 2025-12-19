@@ -13,6 +13,10 @@ import shutil
 import asyncio
 from pydantic import BaseModel
 from datetime import datetime
+import sys
+import io
+import threading
+import queue
 
 # Store loaded networks in memory
 networks: dict[str, pypsa.Network] = {}
@@ -22,6 +26,31 @@ active_connections: list[WebSocket] = []
 
 # Store optimization status
 optimization_status: dict[str, dict] = {}
+
+# Queue for log messages from optimization
+log_queue: queue.Queue = queue.Queue()
+
+
+class LogCapture(io.StringIO):
+    """Capture stdout and put lines into a queue."""
+    def __init__(self, log_queue: queue.Queue, network_id: str):
+        super().__init__()
+        self.log_queue = log_queue
+        self.network_id = network_id
+        self.buffer_line = ""
+
+    def write(self, text):
+        self.buffer_line += text
+        while "\n" in self.buffer_line:
+            line, self.buffer_line = self.buffer_line.split("\n", 1)
+            if line.strip():
+                self.log_queue.put({"network_id": self.network_id, "log": line})
+        return len(text)
+
+    def flush(self):
+        if self.buffer_line.strip():
+            self.log_queue.put({"network_id": self.network_id, "log": self.buffer_line})
+            self.buffer_line = ""
 
 def clean_for_json(df):
     """Replace inf/-inf/nan with None for JSON serialization."""
@@ -288,27 +317,64 @@ async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeR
     
     try:
         await broadcast({
-            "type": "optimization_status", 
+            "type": "optimization_status",
             "network_id": network_id,
             "status": "running",
             "progress": 10,
             "message": "Building optimization model...",
         })
-        
+
         loop = asyncio.get_event_loop()
-        
+
         def run_optimize():
-            return n.optimize(solver_name=request.solver)
-        
+            # Capture stdout to get solver logs
+            log_capture = LogCapture(log_queue, network_id)
+            old_stdout = sys.stdout
+            sys.stdout = log_capture
+            try:
+                result = n.optimize(solver_name=request.solver)
+                return result
+            finally:
+                sys.stdout.flush()
+                log_capture.flush()
+                sys.stdout = old_stdout
+
         await broadcast({
             "type": "optimization_status",
-            "network_id": network_id, 
+            "network_id": network_id,
             "status": "running",
             "progress": 30,
             "message": "Solving optimization problem...",
         })
-        
-        status, termination = await loop.run_in_executor(None, run_optimize)
+
+        # Start a task to process log messages
+        async def process_logs():
+            while True:
+                try:
+                    msg = log_queue.get_nowait()
+                    if msg["network_id"] == network_id:
+                        await broadcast({
+                            "type": "optimization_log",
+                            "network_id": msg["network_id"],
+                            "log": msg["log"],
+                        })
+                except queue.Empty:
+                    await asyncio.sleep(0.1)
+                except Exception:
+                    break
+
+        log_task = asyncio.create_task(process_logs())
+
+        try:
+            status, termination = await loop.run_in_executor(None, run_optimize)
+        finally:
+            # Give logs a moment to flush, then cancel
+            await asyncio.sleep(0.3)
+            log_task.cancel()
+            try:
+                await log_task
+            except asyncio.CancelledError:
+                pass
         
         await broadcast({
             "type": "optimization_status",

@@ -74,6 +74,9 @@ export function useWebSocket() {
               updateNetworkOptStatus(msg.network_id, 'failed')
             }
           }
+        } else if (msg.type === 'optimization_log') {
+          // Solver stdout logs
+          addLog(msg.log, 'info')
         }
       } catch (e) {
         console.error('Failed to parse WebSocket message:', e)
