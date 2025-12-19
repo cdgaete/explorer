@@ -238,6 +238,71 @@
       font-size: 24px;
       font-weight: bold;
     }
+    /* Metadata panel */
+    .metadata-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .metadata-card {
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .metadata-card h4 {
+      color: var(--accent);
+      margin-bottom: 12px;
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+    .carrier-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .carrier-item:last-child { border-bottom: none; }
+    .carrier-color {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+    }
+    .dimension-value {
+      font-size: 28px;
+      font-weight: bold;
+      color: var(--accent);
+    }
+    .dimension-label {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    /* Statistics panel */
+    .stats-controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .stats-controls select {
+      padding: 8px 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-size: 14px;
+    }
+    .stats-controls button {
+      padding: 8px 16px;
+    }
+    .stats-result {
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 16px;
+      overflow-x: auto;
+    }
   </style>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -263,6 +328,8 @@
     <div class="content">
       <div class="tabs">
         <div class="tab active" data-tab="map">Map</div>
+        <div class="tab" data-tab="metadata">Metadata</div>
+        <div class="tab" data-tab="statistics">Statistics</div>
         <div class="tab" data-tab="buses">Buses</div>
         <div class="tab" data-tab="generators">Generators</div>
         <div class="tab" data-tab="lines">Lines</div>
@@ -273,6 +340,8 @@
       
       <div class="tab-content">
         <div id="map" class="tab-panel active" style="padding: 0;"></div>
+        <div id="metadata" class="tab-panel"></div>
+        <div id="statistics" class="tab-panel"></div>
         <div id="buses" class="tab-panel"></div>
         <div id="generators" class="tab-panel"></div>
         <div id="lines" class="tab-panel"></div>
@@ -460,6 +529,145 @@
       }
     }
     
+    async function loadMetadata(networkId) {
+      try {
+        const data = await window.backendAPI.get(`/networks/${networkId}/metadata`);
+        
+        const carriersHtml = Object.entries(data.carriers).map(([name, info]) => `
+          <div class="carrier-item">
+            <div class="carrier-color" style="background: ${info.color || '#888'}"></div>
+            <span>${name}</span>
+          </div>
+        `).join('') || '<div class="empty-state">No carriers</div>';
+        
+        const countriesHtml = data.countries.length > 0 
+          ? data.countries.map(c => `<span class="tag">${c}</span>`).join(' ')
+          : '<span class="text-muted">None</span>';
+        
+        document.getElementById('metadata').innerHTML = `
+          <h2>Network: ${data.name}</h2>
+          
+          <div class="metadata-grid">
+            <div class="metadata-card">
+              <h4>Dimensions</h4>
+              <div style="display: flex; gap: 24px;">
+                <div>
+                  <div class="dimension-value">${data.dimensions.snapshots}</div>
+                  <div class="dimension-label">Snapshots</div>
+                </div>
+                <div>
+                  <div class="dimension-value">${data.dimensions.investment_periods}</div>
+                  <div class="dimension-label">Investment Periods</div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="metadata-card">
+              <h4>Components</h4>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                ${Object.entries(data.components).map(([k, v]) => `
+                  <div><strong>${v}</strong> ${k}</div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+          
+          <div class="metadata-grid">
+            <div class="metadata-card">
+              <h4>Carriers</h4>
+              ${carriersHtml}
+            </div>
+            
+            <div class="metadata-card">
+              <h4>Countries</h4>
+              ${countriesHtml}
+            </div>
+          </div>
+        `;
+      } catch (e) {
+        document.getElementById('metadata').innerHTML = '<div class="empty-state">Failed to load metadata</div>';
+      }
+    }
+    
+    async function loadStatisticsPanel(networkId) {
+      try {
+        const available = await window.backendAPI.get(`/networks/${networkId}/statistics/available`);
+        
+        document.getElementById('statistics').innerHTML = `
+          <h2>Statistics Explorer</h2>
+          <div class="stats-controls">
+            <select id="stat-select">
+              ${available.statistics.map(s => `<option value="${s}">${s.replace(/_/g, ' ')}</option>`).join('')}
+            </select>
+            <select id="groupby-select">
+              <option value="carrier">Group by Carrier</option>
+              <option value="bus">Group by Bus</option>
+              <option value="bus_carrier">Group by Bus + Carrier</option>
+            </select>
+            <button onclick="runStatistics()">Calculate</button>
+          </div>
+          <div id="stats-result" class="stats-result">
+            <div class="empty-state">Select a statistic and click Calculate</div>
+          </div>
+        `;
+      } catch (e) {
+        document.getElementById('statistics').innerHTML = '<div class="empty-state">Failed to load statistics options</div>';
+      }
+    }
+    
+    async function runStatistics() {
+      if (!selectedNetwork) return;
+      
+      const statistic = document.getElementById('stat-select').value;
+      const groupby = document.getElementById('groupby-select').value;
+      const resultDiv = document.getElementById('stats-result');
+      
+      resultDiv.innerHTML = '<div class="empty-state">Calculating...</div>';
+      
+      try {
+        const data = await window.backendAPI.post(`/networks/${selectedNetwork}/statistics`, {
+          statistic,
+          groupby
+        });
+        
+        // Format the result as a table
+        if (data.data && typeof data.data === 'object') {
+          const formatted = formatStatisticsData(data.data);
+          resultDiv.innerHTML = formatted;
+        } else {
+          resultDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+        }
+      } catch (e) {
+        resultDiv.innerHTML = `<div class="empty-state">Error: ${e.message}</div>`;
+      }
+    }
+    
+    function formatStatisticsData(data) {
+      // Handle different pandas to_dict formats
+      if (data.index !== undefined && data.columns !== undefined && data.data !== undefined) {
+        // DataFrame split format
+        let html = '<table class="data-table"><thead><tr><th></th>';
+        html += data.columns.map(c => `<th>${c}</th>`).join('');
+        html += '</tr></thead><tbody>';
+        data.data.forEach((row, i) => {
+          html += `<tr><td><strong>${data.index[i]}</strong></td>`;
+          html += row.map(v => `<td>${typeof v === 'number' ? v.toLocaleString(undefined, {maximumFractionDigits: 2}) : v}</td>`).join('');
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        return html;
+      } else {
+        // Series or simple dict format
+        let html = '<table class="data-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>';
+        Object.entries(data).forEach(([k, v]) => {
+          const formatted = typeof v === 'number' ? v.toLocaleString(undefined, {maximumFractionDigits: 2}) : v;
+          html += `<tr><td><strong>${k}</strong></td><td>${formatted}</td></tr>`;
+        });
+        html += '</tbody></table>';
+        return html;
+      }
+    }
+
     async function refreshNetworkList() {
       try {
         console.log('Refreshing network list...');
@@ -515,6 +723,8 @@
       // Load all component data
       await Promise.all([
         loadMap(networkId),
+        loadMetadata(networkId),
+        loadStatisticsPanel(networkId),
         loadBuses(networkId),
         loadGenerators(networkId),
         loadLines(networkId),
@@ -638,6 +848,7 @@
     window.openFileDialog = openFileDialog;
     window.selectNetwork = selectNetwork;
     window.runOptimization = runOptimization;
+    window.runStatistics = runStatistics;
     
     // Initial load
     refreshNetworkList();

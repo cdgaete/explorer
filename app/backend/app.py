@@ -402,6 +402,29 @@ ALLOWED_STATISTICS = [
     "capacity_factor", "transmission", "energy_balance"
 ]
     
+def serialize_statistics(data):
+    """Convert pandas DataFrame/Series to JSON-serializable format."""
+    import pandas as pd
+    
+    if isinstance(data, pd.DataFrame):
+        result = data.to_dict(orient="split")
+        # Convert tuple indices/columns to strings
+        if result.get("index"):
+            result["index"] = [str(idx) if isinstance(idx, tuple) else idx for idx in result["index"]]
+        if result.get("columns"):
+            result["columns"] = [str(col) if isinstance(col, tuple) else col for col in result["columns"]]
+        # Clean NaN values
+        result["data"] = [
+            [None if (isinstance(v, float) and np.isnan(v)) else v for v in row]
+            for row in result["data"]
+        ]
+        return result
+    elif isinstance(data, pd.Series):
+        return {str(k): (None if (isinstance(v, float) and np.isnan(v)) else v) 
+                for k, v in data.to_dict().items()}
+    else:
+        return data
+
 @app.post("/networks/{network_id}/statistics")
 def get_statistics(network_id: str, request: StatisticsRequest):
     """Get network statistics using PyPSA's statistics module."""
@@ -416,10 +439,7 @@ def get_statistics(network_id: str, request: StatisticsRequest):
         stat_func = getattr(n.statistics, request.statistic)
         result = stat_func(groupby=request.groupby)
         
-        # Convert to JSON-serializable format
-        if hasattr(result, 'to_dict'):
-            return {"data": result.to_dict()}
-        return {"data": result}
+        return {"data": serialize_statistics(result)}
     except Exception as e:
         raise HTTPException(500, f"Failed to compute statistics: {str(e)}")
 
