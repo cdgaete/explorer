@@ -442,6 +442,107 @@ pixi-pack --platform osx-arm64 --create-executable dist/explorer-macos.sh
 - Cross-platform support
 - Developer experience
 
+## Development Roadmap
+
+Phased approach starting with core infrastructure, then incrementally adding features.
+
+### Phase 1: Core Shell (MVP)
+**Goal**: Validate architecture - desktop app + Python subprocess + IPC
+
+| Task | Status |
+|------|--------|
+| Desktop app launches (Electron or Tauri) | ⬜ |
+| React frontend with basic panel layout | ⬜ |
+| FastAPI subprocess starts/stops with app | ⬜ |
+| HTTP request/response working | ⬜ |
+| WebSocket connection working | ⬜ |
+| Pixi environment setup | ⬜ |
+
+**Key Decision**: Electron vs Tauri based on Phase 1 learnings
+
+---
+
+### Phase 2: Load & Display Network
+**Goal**: Prove PyPSA integration works
+
+| Task | Status |
+|------|--------|
+| File picker for network files (.nc, .csv) | ⬜ |
+| Load PyPSA network in backend | ⬜ |
+| Persist network to SQLite | ⬜ |
+| Display components in data table | ⬜ |
+| Basic map with node markers | ⬜ |
+| Left panel: network explorer tree | ⬜ |
+
+---
+
+### Phase 3: Run Optimization
+**Goal**: Prove long-running tasks and progress streaming work
+
+| Task | Status |
+|------|--------|
+| Huey task queue setup | ⬜ |
+| "Run Optimization" button | ⬜ |
+| PyPSA optimization in background worker | ⬜ |
+| Progress bar via WebSocket | ⬜ |
+| Results displayed in table | ⬜ |
+| Bottom panel: logging console | ⬜ |
+| Cancel running optimization | ⬜ |
+
+---
+
+### Phase 4: AI Chat (Basic)
+**Goal**: Prove LangGraph integration works
+
+| Task | Status |
+|------|--------|
+| Right panel: chat UI | ⬜ |
+| LangGraph agent setup | ⬜ |
+| Query tools (get_buses, get_generators, etc.) | ⬜ |
+| Action tool (run_optimization) | ⬜ |
+| Streaming LLM responses | ⬜ |
+| LLM provider configuration (settings) | ⬜ |
+
+---
+
+### Phase 5: Full Visualization
+**Goal**: Complete visualization features
+
+| Task | Status |
+|------|--------|
+| deck.gl network map with lines | ⬜ |
+| shadcn/ui charts (dispatch, capacity) | ⬜ |
+| Mermaid workflow diagrams | ⬜ |
+| Collapsible panels | ⬜ |
+| Tabs navigation | ⬜ |
+| Model inspector (variables, constraints) | ⬜ |
+
+---
+
+### Phase 6: Polish & Configuration
+**Goal**: Production-ready application
+
+| Task | Status |
+|------|--------|
+| Settings UI (solvers, LLM providers) | ⬜ |
+| Multiple network instances | ⬜ |
+| Export functionality (CSV, plots) | ⬜ |
+| Full AI tool suite | ⬜ |
+| Error handling & recovery | ⬜ |
+| Cross-platform testing | ⬜ |
+| Pixi Pack distribution builds | ⬜ |
+
+---
+
+### Current Focus
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ▶ Phase 1: Core Shell                                          │
+│    Validate: Desktop + FastAPI subprocess + WebSocket           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ## Getting Started
 
 > Coming soon - project setup instructions
