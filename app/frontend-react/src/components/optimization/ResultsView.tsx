@@ -11,9 +11,11 @@ export function ResultsView({ networkId }: ResultsViewProps) {
   const [results, setResults] = useState<OptimizationResults | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const { optimization } = useNetworkStore()
+  const { optimization, wsConnected } = useNetworkStore()
 
   useEffect(() => {
+    if (!wsConnected) return
+
     const loadResults = async () => {
       setLoading(true)
       setError(null)
@@ -43,7 +45,7 @@ export function ResultsView({ networkId }: ResultsViewProps) {
     }
 
     loadResults()
-  }, [networkId, optimization.status])
+  }, [networkId, optimization.status, wsConnected])
 
   if (loading) {
     return <div className="text-muted-foreground">Loading results...</div>

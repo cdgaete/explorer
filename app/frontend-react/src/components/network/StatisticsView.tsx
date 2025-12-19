@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { api, type StatisticsAvailable } from '@/api/client'
+import { useNetworkStore } from '@/stores/networkStore'
 
 interface StatisticsViewProps {
   networkId: string
@@ -13,8 +14,11 @@ export function StatisticsView({ networkId }: StatisticsViewProps) {
   const [result, setResult] = useState<unknown>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const wsConnected = useNetworkStore((state) => state.wsConnected)
 
   useEffect(() => {
+    if (!wsConnected) return
+
     const loadAvailable = async () => {
       try {
         const data = await api.get<StatisticsAvailable>(
@@ -30,7 +34,7 @@ export function StatisticsView({ networkId }: StatisticsViewProps) {
     }
 
     loadAvailable()
-  }, [networkId, selectedStat])
+  }, [networkId, selectedStat, wsConnected])
 
   const runStatistics = async () => {
     if (!selectedStat) return

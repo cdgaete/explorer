@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { api, type Metadata } from '@/api/client'
+import { useNetworkStore } from '@/stores/networkStore'
 
 interface MetadataViewProps {
   networkId: string
@@ -10,8 +11,11 @@ export function MetadataView({ networkId }: MetadataViewProps) {
   const [metadata, setMetadata] = useState<Metadata | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const wsConnected = useNetworkStore((state) => state.wsConnected)
 
   useEffect(() => {
+    if (!wsConnected) return
+
     const loadMetadata = async () => {
       setLoading(true)
       setError(null)
@@ -27,7 +31,7 @@ export function MetadataView({ networkId }: MetadataViewProps) {
     }
 
     loadMetadata()
-  }, [networkId])
+  }, [networkId, wsConnected])
 
   if (loading) {
     return (

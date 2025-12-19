@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { api } from '@/api/client'
 import { ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useNetworkStore } from '@/stores/networkStore'
 
 interface DataTableViewProps {
   networkId: string
@@ -24,8 +25,11 @@ export function DataTableView({ networkId, component, columns }: DataTableViewPr
   const [loading, setLoading] = useState(true)
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
+  const wsConnected = useNetworkStore((state) => state.wsConnected)
 
   useEffect(() => {
+    if (!wsConnected) return
+
     const loadData = async () => {
       setLoading(true)
       try {
@@ -42,7 +46,7 @@ export function DataTableView({ networkId, component, columns }: DataTableViewPr
     }
 
     loadData()
-  }, [networkId, component])
+  }, [networkId, component, wsConnected])
 
   const tableColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(
     () =>
