@@ -25,7 +25,7 @@ function ResizeHandle({ className, direction = 'horizontal' }: { className?: str
 function SidebarResizeHandle({ onToggle, isCollapsed }: { onToggle: () => void; isCollapsed: boolean }) {
   return (
     <PanelResizeHandle
-      className="relative w-px bg-border transition-colors hover:bg-primary/50 before:absolute before:inset-0 before:-left-1 before:-right-1"
+      className="relative transition-colors hover:bg-primary/50 before:absolute before:inset-0 before:-left-1 before:-right-1"
     >
       <button
         onClick={(e) => {
@@ -34,16 +34,16 @@ function SidebarResizeHandle({ onToggle, isCollapsed }: { onToggle: () => void; 
         }}
         className={cn(
           "absolute z-10 flex items-center justify-center",
-          "w-3 h-6 -left-1",
+          "w-4 h-8 -left-2",
           "top-1/2 -translate-y-1/2",
-          "bg-card border border-border rounded-sm",
+          "bg-card border border-border rounded",
           "hover:bg-accent hover:border-primary transition-colors",
         )}
       >
         {isCollapsed ? (
-          <ChevronRight className="h-3 w-3" />
+          <ChevronRight className="h-4 w-4" />
         ) : (
-          <ChevronLeft className="h-3 w-3" />
+          <ChevronLeft className="h-4 w-4" />
         )}
       </button>
     </PanelResizeHandle>
@@ -53,18 +53,18 @@ function SidebarResizeHandle({ onToggle, isCollapsed }: { onToggle: () => void; 
 // Thin collapsed sidebar strip with toggle
 function CollapsedSidebarStrip({ onToggle }: { onToggle: () => void }) {
   return (
-    <div className="relative w-px bg-border">
+    <div className="relative">
       <button
         onClick={onToggle}
         className={cn(
           "absolute z-10 flex items-center justify-center",
-          "w-3 h-6 -left-1",
+          "w-4 h-8 -left-2",
           "top-1/2 -translate-y-1/2",
-          "bg-card border border-border rounded-sm",
+          "bg-card border border-border rounded",
           "hover:bg-accent hover:border-primary transition-colors",
         )}
       >
-        <ChevronRight className="h-3 w-3" />
+        <ChevronRight className="h-4 w-4" />
       </button>
     </div>
   )
@@ -91,9 +91,7 @@ export function PanelLayout() {
               minSize={15}
               maxSize={35}
             >
-              <div className="h-full border-r border-border">
-                <Sidebar />
-              </div>
+              <Sidebar />
             </Panel>
             <SidebarResizeHandle onToggle={toggleSidebar} isCollapsed={false} />
           </>
