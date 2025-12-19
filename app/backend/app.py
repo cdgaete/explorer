@@ -17,6 +17,7 @@ import sys
 import io
 import threading
 import queue
+import logging
 
 # Store loaded networks in memory
 networks: dict[str, pypsa.Network] = {}
@@ -51,6 +52,24 @@ class LogCapture(io.StringIO):
         if self.buffer_line.strip():
             self.log_queue.put({"network_id": self.network_id, "log": self.buffer_line})
             self.buffer_line = ""
+
+
+class QueueLoggingHandler(logging.Handler):
+    """Logging handler that puts log messages into a queue."""
+    def __init__(self, log_queue: queue.Queue, network_id: str):
+        super().__init__()
+        self.log_queue = log_queue
+        self.network_id = network_id
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            # Split multiline messages
+            for line in msg.split('\n'):
+                if line.strip():
+                    self.log_queue.put({"network_id": self.network_id, "log": line})
+        except Exception:
+            self.handleError(record)
 
 def clean_for_json(df):
     """Replace inf/-inf/nan with None for JSON serialization."""
@@ -327,17 +346,39 @@ async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeR
         loop = asyncio.get_event_loop()
 
         def run_optimize():
-            # Capture stdout to get solver logs
+            # Set up logging handler to capture solver logs
+            log_handler = QueueLoggingHandler(log_queue, network_id)
+            log_handler.setFormatter(logging.Formatter('%(name)s: %(message)s'))
+            log_handler.setLevel(logging.INFO)
+
+            # Add handler to relevant loggers
+            loggers_to_capture = ['pypsa', 'linopy', 'linopy.model', 'linopy.io', 'linopy.constants']
+            original_levels = {}
+            for logger_name in loggers_to_capture:
+                logger = logging.getLogger(logger_name)
+                original_levels[logger_name] = logger.level
+                logger.setLevel(logging.INFO)
+                logger.addHandler(log_handler)
+
+            # Also capture stdout for HiGHS direct output
             log_capture = LogCapture(log_queue, network_id)
             old_stdout = sys.stdout
             sys.stdout = log_capture
+
             try:
                 result = n.optimize(solver_name=request.solver)
                 return result
             finally:
+                # Restore stdout
                 sys.stdout.flush()
                 log_capture.flush()
                 sys.stdout = old_stdout
+
+                # Remove logging handlers
+                for logger_name in loggers_to_capture:
+                    logger = logging.getLogger(logger_name)
+                    logger.removeHandler(log_handler)
+                    logger.setLevel(original_levels[logger_name])
 
         await broadcast({
             "type": "optimization_status",
