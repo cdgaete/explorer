@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from datetime import datetime
 import sys
 import io
+import os
 import threading
 import queue
 import logging
@@ -351,34 +352,77 @@ async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeR
             log_handler.setFormatter(logging.Formatter('%(name)s: %(message)s'))
             log_handler.setLevel(logging.INFO)
 
-            # Add handler to relevant loggers
-            loggers_to_capture = ['pypsa', 'linopy', 'linopy.model', 'linopy.io', 'linopy.constants']
-            original_levels = {}
+            # Only add handler to top-level loggers to prevent duplicates
+            loggers_to_capture = ['pypsa', 'linopy']
+            original_states = {}
             for logger_name in loggers_to_capture:
                 logger = logging.getLogger(logger_name)
-                original_levels[logger_name] = logger.level
+                original_states[logger_name] = {
+                    'level': logger.level,
+                    'propagate': logger.propagate,
+                }
                 logger.setLevel(logging.INFO)
+                logger.propagate = False  # Prevent duplicate propagation
                 logger.addHandler(log_handler)
 
-            # Also capture stdout for HiGHS direct output
-            log_capture = LogCapture(log_queue, network_id)
-            old_stdout = sys.stdout
-            sys.stdout = log_capture
+            # Capture C-level stdout/stderr for HiGHS solver output
+            # Save original file descriptors
+            stdout_fd = sys.stdout.fileno()
+            stderr_fd = sys.stderr.fileno()
+            saved_stdout_fd = os.dup(stdout_fd)
+            saved_stderr_fd = os.dup(stderr_fd)
+
+            # Create pipes to capture output
+            stdout_read_fd, stdout_write_fd = os.pipe()
+            stderr_read_fd, stderr_write_fd = os.pipe()
+
+            # Redirect stdout/stderr to write end of pipes
+            os.dup2(stdout_write_fd, stdout_fd)
+            os.dup2(stderr_write_fd, stderr_fd)
+
+            # Thread to read from pipes and put into queue
+            def pipe_reader(read_fd, name):
+                with os.fdopen(read_fd, 'r', buffering=1) as f:
+                    for line in f:
+                        line = line.rstrip('\n')
+                        if line:
+                            log_queue.put({"network_id": network_id, "log": line})
+
+            stdout_thread = threading.Thread(target=pipe_reader, args=(stdout_read_fd, 'stdout'))
+            stderr_thread = threading.Thread(target=pipe_reader, args=(stderr_read_fd, 'stderr'))
+            stdout_thread.daemon = True
+            stderr_thread.daemon = True
+            stdout_thread.start()
+            stderr_thread.start()
 
             try:
                 result = n.optimize(solver_name=request.solver)
                 return result
             finally:
-                # Restore stdout
+                # Flush Python buffers
                 sys.stdout.flush()
-                log_capture.flush()
-                sys.stdout = old_stdout
+                sys.stderr.flush()
+
+                # Close write ends to signal EOF to reader threads
+                os.close(stdout_write_fd)
+                os.close(stderr_write_fd)
+
+                # Restore original file descriptors
+                os.dup2(saved_stdout_fd, stdout_fd)
+                os.dup2(saved_stderr_fd, stderr_fd)
+                os.close(saved_stdout_fd)
+                os.close(saved_stderr_fd)
+
+                # Wait for reader threads to finish
+                stdout_thread.join(timeout=1.0)
+                stderr_thread.join(timeout=1.0)
 
                 # Remove logging handlers
                 for logger_name in loggers_to_capture:
                     logger = logging.getLogger(logger_name)
                     logger.removeHandler(log_handler)
-                    logger.setLevel(original_levels[logger_name])
+                    logger.setLevel(original_states[logger_name]['level'])
+                    logger.propagate = original_states[logger_name]['propagate']
 
         await broadcast({
             "type": "optimization_status",
