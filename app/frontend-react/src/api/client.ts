@@ -29,8 +29,25 @@ class ApiClient {
     return response.json()
   }
 
-  async loadFile(filePath: string): Promise<{ id: string; name: string }> {
-    return this.post('/networks/load', { file_path: filePath })
+  async uploadFile(file: File): Promise<NetworkInfo> {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const response = await fetch(`${this.baseUrl}/networks/load`, {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }))
+      throw new Error(error.detail || `Upload failed: ${response.status}`)
+    }
+
+    return response.json()
+  }
+
+  async loadFromPath(filePath: string): Promise<NetworkInfo> {
+    return this.post('/networks/load-path', { path: filePath })
   }
 }
 

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Network as NetworkIcon, FolderOpen, Sparkles } from 'lucide-react'
+import { useEffect, useState, useRef } from 'react'
+import { Network as NetworkIcon, FolderOpen, Sparkles, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useNetworkStore, type Network } from '@/stores/networkStore'
@@ -72,6 +72,9 @@ function NetworkCard({ network, isSelected, onClick }: NetworkCardProps) {
 
 export function Sidebar() {
   const { networks, selectedNetworkId, setNetworks, selectNetwork, addNetwork, wsConnected } = useNetworkStore()
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     // Only fetch when backend is connected
@@ -134,21 +137,52 @@ export function Sidebar() {
     }
   }
 
-  const handleOpenFile = async () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.nc,.h5,.hdf5'
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0]
-      if (file) {
-        console.log('Selected file:', file.name)
+  const handleOpenFile = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsUploading(true)
+    setUploadError(null)
+
+    try {
+      const result = await api.uploadFile(file)
+      addNetwork({
+        id: result.id,
+        name: result.name,
+        buses: result.buses,
+        generators: result.generators,
+        lines: result.lines,
+        loads: result.loads ?? 0,
+        links: result.links ?? 0,
+        optStatus: 'idle',
+      })
+      selectNetwork(result.id)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to upload file'
+      setUploadError(message)
+      console.error('Upload failed:', err)
+    } finally {
+      setIsUploading(false)
+      // Reset input so same file can be selected again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
       }
     }
-    input.click()
   }
 
   return (
     <div className="flex flex-col h-full bg-card border-r border-border">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".nc,.h5,.hdf5"
+        onChange={handleFileChange}
+        className="hidden"
+      />
       <div className="px-3 py-3 border-b border-border space-y-3">
         <h2 className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
           Networks
@@ -158,11 +192,24 @@ export function Sidebar() {
             <Sparkles className="h-3.5 w-3.5 mr-1.5" />
             Example
           </Button>
-          <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={handleOpenFile}>
-            <FolderOpen className="h-3.5 w-3.5 mr-1.5" />
-            Open
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1 text-xs"
+            onClick={handleOpenFile}
+            disabled={isUploading}
+          >
+            {isUploading ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <FolderOpen className="h-3.5 w-3.5 mr-1.5" />
+            )}
+            {isUploading ? 'Loading...' : 'Open'}
           </Button>
         </div>
+        {uploadError && (
+          <p className="text-xs text-destructive">{uploadError}</p>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {networks.length === 0 ? (
