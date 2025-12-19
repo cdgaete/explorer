@@ -97,14 +97,14 @@ export function Sidebar() {
         )
 
         setNetworks(networksWithStatus)
-      } catch (e) {
-        console.error('Failed to fetch networks:', e)
+      } catch {
+        // Silently fail - backend may not be running
       }
     }
 
     fetchNetworks()
-    // Refresh every 5 seconds
-    const interval = setInterval(fetchNetworks, 5000)
+    // Refresh every 10 seconds
+    const interval = setInterval(fetchNetworks, 10000)
     return () => clearInterval(interval)
   }, [setNetworks, addNetwork])
 

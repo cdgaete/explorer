@@ -2,11 +2,12 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useNetworkStore } from '@/stores/networkStore'
 
 const WS_URL = 'ws://127.0.0.1:8000/ws'
-const RECONNECT_DELAY = 2000
+const RECONNECT_DELAY = 3000
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
+  const wasConnectedRef = useRef(false)
   const { updateOptimization, updateNetworkOptStatus, setWsConnected, addLog, clearLogs } = useNetworkStore()
 
   const connect = useCallback(() => {
@@ -15,18 +16,20 @@ export function useWebSocket() {
     const ws = new WebSocket(WS_URL)
 
     ws.onopen = () => {
-      console.log('WebSocket connected')
+      if (!wasConnectedRef.current) {
+        console.log('WebSocket connected')
+      }
+      wasConnectedRef.current = true
       setWsConnected(true)
     }
 
     ws.onclose = () => {
-      console.log('WebSocket disconnected, reconnecting...')
       setWsConnected(false)
       reconnectTimeoutRef.current = window.setTimeout(connect, RECONNECT_DELAY)
     }
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error)
+    ws.onerror = () => {
+      // Silently handle - onclose will trigger reconnect
     }
 
     ws.onmessage = (event) => {

@@ -113,8 +113,8 @@ export function MapView({ networkId }: MapViewProps) {
             map.fitBounds(bounds, { padding: [50, 50], maxZoom: 6 })
           }
         }
-      } catch (e) {
-        console.error('Failed to load map data:', e)
+      } catch {
+        // Silently fail - backend may not be running
       } finally {
         setLoading(false)
       }
