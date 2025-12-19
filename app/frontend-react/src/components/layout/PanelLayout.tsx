@@ -11,8 +11,8 @@ function ResizeHandle({ className, direction = 'horizontal' }: { className?: str
   return (
     <PanelResizeHandle
       className={cn(
-        "relative transition-colors",
-        direction === 'horizontal' ? "w-1 hover:bg-primary/50" : "h-1 hover:bg-primary/50",
+        "relative transition-colors bg-border",
+        direction === 'horizontal' ? "w-px hover:bg-primary/50" : "h-px hover:bg-primary/50",
         "before:absolute before:inset-0",
         direction === 'horizontal' ? "before:-left-1 before:-right-1" : "before:-top-1 before:-bottom-1",
         className
@@ -25,7 +25,7 @@ function ResizeHandle({ className, direction = 'horizontal' }: { className?: str
 function SidebarResizeHandle({ onToggle, isCollapsed }: { onToggle: () => void; isCollapsed: boolean }) {
   return (
     <PanelResizeHandle
-      className="relative transition-colors hover:bg-primary/50 before:absolute before:inset-0 before:-left-1 before:-right-1"
+      className="relative w-px bg-border transition-colors hover:bg-primary/50 before:absolute before:inset-0 before:-left-1 before:-right-1"
     >
       <button
         onClick={(e) => {
