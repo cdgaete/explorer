@@ -1,105 +1,62 @@
 # Desktop Framework Evaluation: Electron vs Tauri
 
-Comparing Electron and Tauri for our Python/FastAPI sidecar use case.
+## Conclusion: Electron ✅
 
-## Quick Comparison
+After building toy apps with both frameworks, **Electron is the clear winner** for this project.
 
-| Aspect | Electron | Tauri |
-|--------|----------|-------|
-| **App Size** | 80-120 MB | 2-10 MB |
-| **Memory Usage** | ~100+ MB | ~30-40 MB |
-| **Startup Time** | 1-2 seconds | <500 ms |
-| **Backend Language** | Node.js | Rust |
-| **Python Subprocess** | `child_process` (easy) | Sidecar (built-in) |
-| **WebView** | Bundled Chromium | System WebView |
-| **Learning Curve** | Lower (JavaScript) | Higher (Rust) |
-| **Ecosystem** | Very mature | Growing rapidly |
+## Evaluation Results
 
-## For Our Use Case (FastAPI + Pixi)
+| Criteria | Electron | Tauri |
+|----------|----------|-------|
+| Setup complexity | ✅ Simple | ❌ Complex |
+| FastAPI subprocess starts reliably | ✅ Yes | ⚠️ Requires PyInstaller |
+| WebSocket works | ✅ Yes | ✅ Yes |
+| App shutdown kills subprocess | ✅ Yes | ✅ Yes |
+| Hot reload during development | ✅ Yes | ✅ Yes |
+| Build size (production) | ⚠️ ~120MB | ✅ ~40MB |
+| Memory usage | ⚠️ ~100MB | ✅ ~40MB |
+| Startup time | ⚠️ 1-2s | ✅ <500ms |
+| **Time to working prototype** | ✅ **30 min** | ❌ **3+ hours** |
 
-### Electron Approach
+## Key Findings
+
+### Electron Advantages
+
+1. **Simple Python integration**: Just `child_process.spawn('pixi', ['run', 'serve'])` - works immediately
+2. **No binary bundling needed**: Can use Pixi directly, no PyInstaller step
+3. **Mature ecosystem**: Abundant examples and documentation
+4. **Predictable debugging**: Chrome DevTools work exactly as expected
+5. **Fast iteration**: Changes work immediately without complex configuration
+
+### Tauri Challenges Encountered
+
+1. **Sidecar requires binary**: Must use PyInstaller to create standalone executable
+2. **Complex permissions**: Capability system requires specific JSON configuration
+3. **Config syntax changes**: Tauri v2 changed config format, many outdated examples online
+4. **Tailwind v4 conflicts**: PostCSS plugin moved to separate package
+5. **Silent failures**: App would launch but do nothing without clear error messages
+
+### Why Bundle Size Doesn't Matter (For This Project)
+
+- Target users are energy analysts on workstations, not mobile devices
+- 120MB vs 40MB is negligible for a desktop app with Python backend
+- PyPSA + solver dependencies already add ~500MB+ to the Python environment
+- Developer productivity is worth more than 80MB savings
+
+## Final Architecture
+
 ```
 Electron (Node.js)
     │
     ├── child_process.spawn()
     │       │
-    │       └── pixi run python -m uvicorn main:app
+    │       └── pixi run serve
     │
     └── React Frontend ←→ FastAPI (localhost:8000)
 ```
-
-**Pros:**
-- Simpler subprocess management with Node.js
-- Can directly use `pixi run` command
-- More examples/documentation for Python integration
-- Easier debugging (Chrome DevTools)
-
-**Cons:**
-- Large bundle size (includes Chromium)
-- Higher memory usage
-- Need to bundle Pixi environment separately
-
-### Tauri Approach
-```
-Tauri (Rust)
-    │
-    ├── Sidecar (built-in lifecycle management)
-    │       │
-    │       └── PyInstaller binary OR pixi-packed env
-    │
-    └── React Frontend ←→ FastAPI (localhost:8000)
-```
-
-**Pros:**
-- Built-in sidecar management (start/stop/restart)
-- Tiny bundle size
-- Lower memory footprint
-- Better for distribution
-
-**Cons:**
-- Requires PyInstaller or similar to bundle Python
-- Rust knowledge helpful for customization
-- System WebView can vary across platforms
-
-## Existing Templates
-
-### Tauri + FastAPI
-- [vue-tauri-fastapi-sidecar-template](https://github.com/AlanSynn/vue-tauri-fastapi-sidecar-template) - Tauri v2 + Vue + FastAPI
-- [example-tauri-v2-python-server-sidecar](https://github.com/dieharders/example-tauri-v2-python-server-sidecar) - Tauri v2 + Next.js + FastAPI
-
-### Electron + Python
-- Many examples using `python-shell` or direct `child_process`
 
 ## Recommendation
 
-For our project, I suggest testing **both** with simple toy apps:
+**Use Electron** for the Energy Network Explorer. The simpler integration with Pixi and faster development velocity outweigh Tauri's theoretical performance benefits.
 
-1. **[Electron Toy App](./electron-toy-app.md)** - Quick to set up, validate subprocess pattern
-2. **[Tauri Toy App](./tauri-toy-app.md)** - Test sidecar pattern with FastAPI
-
-Then decide based on:
-- Which feels more natural for development
-- Bundle size requirements
-- Performance on target platforms
-
-## Test Criteria
-
-After building both toy apps, evaluate:
-
-| Criteria | Electron | Tauri |
-|----------|----------|-------|
-| Setup complexity | | |
-| FastAPI subprocess starts reliably | | |
-| WebSocket works | | |
-| App shutdown kills subprocess | | |
-| Hot reload during development | | |
-| Build size (production) | | |
-| Memory usage | | |
-| Startup time | | |
-
-## Sources
-
-- [Electron vs Tauri - DoltHub](https://www.dolthub.com/blog/2025-11-13-electron-vs-tauri/)
-- [Tauri vs Electron Performance Comparison](https://www.gethopp.app/blog/tauri-vs-electron)
-- [Tauri Sidecar Documentation](https://v2.tauri.app/develop/sidecar/)
-- [Tauri vs Electron 2025 - Codeology](https://codeology.co.nz/articles/tauri-vs-electron-2025-desktop-development.html)
+Proceed to Phase 2 with the Electron architecture.

@@ -453,32 +453,34 @@ Build and compare toy apps with FastAPI backend:
 
 | Criteria | Electron | Tauri |
 |----------|----------|-------|
-| Setup complexity | ⬜ | ⬜ |
-| FastAPI subprocess starts reliably | ⬜ | ⬜ |
-| WebSocket works | ⬜ | ⬜ |
-| App shutdown kills subprocess | ⬜ | ⬜ |
-| Hot reload during development | ⬜ | ⬜ |
-| Build size (production) | ⬜ | ⬜ |
-| Memory usage | ⬜ | ⬜ |
-| Startup time | ⬜ | ⬜ |
+| Setup complexity | ✅ Simple | ❌ Complex |
+| FastAPI subprocess starts reliably | ✅ Yes | ⚠️ Requires PyInstaller |
+| WebSocket works | ✅ Yes | ✅ Yes |
+| App shutdown kills subprocess | ✅ Yes | ✅ Yes |
+| Hot reload during development | ✅ Yes | ✅ Yes |
+| Build size (production) | ⚠️ ~120MB | ✅ ~40MB |
+| Memory usage | ⚠️ ~100MB | ✅ ~40MB |
+| Startup time | ⚠️ 1-2s | ✅ <500ms |
+
+**Decision: Electron** - Simpler Python/Pixi integration, faster development velocity.
 
 ## Development Roadmap
 
 Phased approach starting with core infrastructure, then incrementally adding features.
 
-### Phase 1: Core Shell (MVP)
+### Phase 1: Core Shell (MVP) ✅
 **Goal**: Validate architecture - desktop app + Python subprocess + IPC
 
 | Task | Status |
 |------|--------|
-| Desktop app launches (Electron or Tauri) | ⬜ |
-| React frontend with basic panel layout | ⬜ |
-| FastAPI subprocess starts/stops with app | ⬜ |
-| HTTP request/response working | ⬜ |
-| WebSocket connection working | ⬜ |
-| Pixi environment setup | ⬜ |
+| Desktop app launches (Electron) | ✅ |
+| React frontend with basic panel layout | ✅ |
+| FastAPI subprocess starts/stops with app | ✅ |
+| HTTP request/response working | ✅ |
+| WebSocket connection working | ✅ |
+| Pixi environment setup | ✅ |
 
-**Key Decision**: Electron vs Tauri based on Phase 1 learnings
+**Outcome**: Electron selected over Tauri for simpler Pixi integration.
 
 ---
 
