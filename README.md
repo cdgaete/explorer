@@ -63,6 +63,46 @@ All side panels are **collapsible** to maximize workspace.
 
 ## Core Features
 
+### Dual Interface Design
+
+Every feature is accessible through **two equivalent interfaces**:
+
+| Interface | Best For | Examples |
+|-----------|----------|----------|
+| **AI Chat** | Complex queries, exploration, multi-step workflows | "Show me nodes with capacity > 100MW", "Run optimization and plot results" |
+| **GUI** | Quick actions, visual navigation, precise control | Click buttons, use menus, drag sliders |
+
+**Key Principle**: The AI chat can perform any action available in the GUI, and vice versa.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Same Backend Services                        │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                    FastAPI Endpoints                       │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│         ▲                                        ▲               │
+│         │                                        │               │
+│    ┌────┴────┐                             ┌────┴────┐          │
+│    │   GUI   │                             │   AI    │          │
+│    │ Buttons │                             │  Chat   │          │
+│    │  Menus  │                             │ (Tools) │          │
+│    └─────────┘                             └─────────┘          │
+│    User clicks                           User types             │
+│    "Run Optimization"                    "Run the optimization" │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Example: Same Action, Two Ways
+
+| Action | GUI Way | AI Chat Way |
+|--------|---------|-------------|
+| Run optimization | Click "Run" button in bottom panel | "Run the optimization" |
+| View results | Click Results tab, select table | "Show me the optimization results" |
+| Filter nodes | Use filter dropdown, select criteria | "Show nodes in region North with capacity > 50MW" |
+| Change plot parameter | Adjust slider, click refresh | "Change the time range to January and refresh the plot" |
+| Export data | File menu → Export → CSV | "Export the dispatch data as CSV" |
+| Check status | View status bar / progress indicator | "What's the optimization status?" |
+
 ### Network Management
 - Import network files (various formats)
 - Browse network topology in explorer view
@@ -89,14 +129,18 @@ All side panels are **collapsible** to maximize workspace.
 
 ### AI Assistant (LangGraph Agent)
 - Integrated chat interface powered by **LangGraph**
-- Agent with tools connected to each tab's backend:
-  - **Network Tools**: Query network topology, nodes, transmission lines
-  - **Optimization Tools**: Check status, start/stop runs, get results
-  - **Model Tools**: Inspect variables, constraints, objective function
-  - **Data Tools**: Query tables, fetch time-series data
-  - **Visualization Tools**: Generate plots, export charts
+- **Query capabilities** (read data):
+  - Explore network topology, nodes, transmission lines
+  - Inspect model variables, constraints, objective function
+  - Fetch results, time-series data, configuration parameters
+- **Action capabilities** (perform operations):
+  - Run/cancel optimization jobs
+  - Modify plot parameters and refresh visualizations
+  - Export data in various formats
+  - Navigate to specific tabs or views
+- **UI synchronization**: When AI performs actions, the GUI updates automatically
 - Context-aware responses based on current tab and selection
-- Natural language queries for complex data analysis
+- Natural language for complex multi-step workflows
 
 ## LangGraph Agent Architecture
 
@@ -132,14 +176,23 @@ The AI chat panel is powered by a LangGraph agent that can interact with all app
 
 ### Agent Tools
 
+#### Query Tools (Read Data)
+
 | Tool Category | Tools | Description |
 |---------------|-------|-------------|
 | **Network** | `get_nodes`, `get_lines`, `get_topology`, `search_network` | Query network structure |
-| **Optimization** | `run_optimization`, `get_opt_status`, `cancel_run`, `get_results` | Control optimization jobs |
 | **Model** | `list_variables`, `list_constraints`, `get_objective`, `get_parameters` | Inspect mathematical model |
-| **Data** | `query_table`, `get_timeseries`, `aggregate_data`, `export_csv` | Data retrieval and export |
-| **Visualization** | `plot_dispatch`, `plot_network`, `compare_scenarios` | Generate visualizations |
+| **Data** | `query_table`, `get_timeseries`, `aggregate_data` | Data retrieval and analysis |
 | **Context** | `get_current_tab`, `get_selection`, `get_active_instance` | Application state awareness |
+
+#### Action Tools (Perform Operations)
+
+| Tool Category | Tools | Description |
+|---------------|-------|-------------|
+| **Optimization** | `run_optimization`, `cancel_run`, `get_opt_status`, `get_results` | Control optimization jobs |
+| **Visualization** | `update_plot_params`, `refresh_plot`, `set_time_range`, `compare_scenarios` | Modify and refresh visualizations |
+| **Export** | `export_csv`, `export_plot`, `export_report` | Export data and visualizations |
+| **Navigation** | `open_tab`, `select_node`, `focus_panel`, `set_filter` | Control UI navigation and state |
 
 ### Agent Capabilities
 
