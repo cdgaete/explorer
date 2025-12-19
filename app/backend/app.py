@@ -19,6 +19,7 @@ import os
 import threading
 import queue
 import logging
+import psutil
 
 # Store loaded networks in memory
 networks: dict[str, pypsa.Network] = {}
@@ -31,6 +32,9 @@ optimization_status: dict[str, dict] = {}
 
 # Store running optimization tasks for cancellation
 optimization_tasks: dict[str, asyncio.Task] = {}
+
+# Store cancellation flags for each network
+optimization_cancel_flags: dict[str, threading.Event] = {}
 
 # Queue for log messages from optimization
 log_queue: queue.Queue = queue.Queue()
@@ -322,7 +326,15 @@ async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeR
         raise HTTPException(400, f"Optimization already running for '{network_id}'")
     
     n = networks[network_id]
-    
+
+    # Create cancel flag for this optimization
+    cancel_flag = threading.Event()
+    optimization_cancel_flags[network_id] = cancel_flag
+
+    # Get current process to track child processes
+    current_process = psutil.Process()
+    initial_children = set(p.pid for p in current_process.children(recursive=True))
+
     # Initialize status
     optimization_status[network_id] = {
         "running": True,
@@ -330,14 +342,14 @@ async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeR
         "status": "starting",
         "started_at": datetime.now().isoformat(),
     }
-    
+
     await broadcast({
         "type": "optimization_status",
         "network_id": network_id,
         "status": "starting",
         "progress": 0,
     })
-    
+
     try:
         await broadcast({
             "type": "optimization_status",
@@ -499,6 +511,12 @@ async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeR
             "objective": objective,
         }
         
+    except asyncio.CancelledError:
+        # Optimization was cancelled - status already updated by cancel endpoint
+        # Clean up cancel flag
+        optimization_cancel_flags.pop(network_id, None)
+        return {"status": "cancelled"}
+
     except Exception as e:
         optimization_status[network_id] = {
             "running": False,
@@ -506,15 +524,19 @@ async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeR
             "status": "failed",
             "error": str(e),
         }
-        
+
         await broadcast({
             "type": "optimization_status",
             "network_id": network_id,
             "status": "failed",
             "error": str(e),
         })
-        
+
         raise HTTPException(500, f"Optimization failed: {str(e)}")
+
+    finally:
+        # Clean up cancel flag
+        optimization_cancel_flags.pop(network_id, None)
 
 @app.get("/networks/{network_id}/optimization-status")
 def get_optimization_status(network_id: str):
@@ -533,7 +555,28 @@ async def cancel_optimization(network_id: str):
     if not status.get("running"):
         raise HTTPException(400, "No optimization is running for this network")
 
-    # Cancel the task if it exists
+    # Set the cancel flag
+    cancel_flag = optimization_cancel_flags.get(network_id)
+    if cancel_flag:
+        cancel_flag.set()
+
+    # Kill solver child processes
+    killed_pids = []
+    try:
+        current_process = psutil.Process()
+        for child in current_process.children(recursive=True):
+            try:
+                # Kill processes that look like solvers (highs, glpk, cbc, etc.)
+                cmdline = " ".join(child.cmdline()).lower()
+                if any(solver in cmdline for solver in ["highs", "glpk", "cbc", "cplex", "gurobi", "scip"]):
+                    child.kill()
+                    killed_pids.append(child.pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    except Exception as e:
+        logging.warning(f"Error killing solver processes: {e}")
+
+    # Cancel the asyncio task if it exists
     task = optimization_tasks.get(network_id)
     if task and not task.done():
         task.cancel()
@@ -544,6 +587,7 @@ async def cancel_optimization(network_id: str):
         "progress": 0,
         "status": "cancelled",
         "cancelled_at": datetime.now().isoformat(),
+        "killed_pids": killed_pids,
     }
 
     await broadcast({
@@ -553,7 +597,7 @@ async def cancel_optimization(network_id: str):
         "progress": 0,
     })
 
-    return {"status": "cancelled"}
+    return {"status": "cancelled", "killed_pids": killed_pids}
 
 @app.get("/networks/{network_id}/results")
 def get_results(network_id: str):
