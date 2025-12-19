@@ -141,7 +141,7 @@ export function Sidebar() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-card">
+    <div className="flex flex-col h-full bg-card border-r border-border">
       <div className="px-3 py-3 border-b border-border space-y-3">
         <h2 className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
           Networks
