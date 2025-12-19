@@ -7,7 +7,7 @@ const RECONNECT_DELAY = 2000
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
-  const { updateOptimization, updateNetworkOptStatus, setWsConnected } = useNetworkStore()
+  const { updateOptimization, updateNetworkOptStatus, setWsConnected, addLog, clearLogs } = useNetworkStore()
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -42,6 +42,26 @@ export function useWebSocket() {
             error: msg.error,
           })
 
+          // Add log entries for optimization events
+          if (msg.status === 'starting') {
+            clearLogs()
+            addLog(`Starting optimization for network ${msg.network_id}...`, 'info')
+          } else if (msg.message) {
+            addLog(msg.message, 'info')
+          }
+
+          if (msg.status === 'completed') {
+            addLog(`Optimization completed successfully`, 'success')
+            if (msg.objective !== undefined) {
+              addLog(`Objective value: ${msg.objective.toLocaleString()}`, 'info')
+            }
+            if (msg.termination) {
+              addLog(`Termination: ${msg.termination}`, 'info')
+            }
+          } else if (msg.status === 'failed') {
+            addLog(`Optimization failed: ${msg.error || 'Unknown error'}`, 'error')
+          }
+
           if (msg.network_id) {
             if (msg.status === 'completed') {
               updateNetworkOptStatus(msg.network_id, 'completed')
@@ -58,7 +78,7 @@ export function useWebSocket() {
     }
 
     wsRef.current = ws
-  }, [updateOptimization, updateNetworkOptStatus, setWsConnected])
+  }, [updateOptimization, updateNetworkOptStatus, setWsConnected, addLog, clearLogs])
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

@@ -1,17 +1,24 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { useNetworkStore } from '@/stores/networkStore'
 import { api } from '@/api/client'
 import { ScrollText, Gauge, Play, Square } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export function BottomPanel() {
   const [activeTab, setActiveTab] = useState('optimization')
-  const { optimization, selectedNetworkId, networks } = useNetworkStore()
+  const { optimization, selectedNetworkId, networks, logs } = useNetworkStore()
+  const logsEndRef = useRef<HTMLDivElement>(null)
 
   const isOptimizing = optimization.status === 'running' || optimization.status === 'starting'
   const selectedNetwork = networks.find((n) => n.id === selectedNetworkId)
+
+  // Auto-scroll logs to bottom
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [logs])
 
   const handleRunOptimization = async () => {
     if (!selectedNetworkId) return
@@ -111,8 +118,31 @@ export function BottomPanel() {
         </TabsContent>
 
         <TabsContent value="logs" className="flex-1 overflow-auto">
-          <div className="p-4 font-mono text-xs text-muted-foreground">
-            <p>Logs will appear here...</p>
+          <div className="p-2 font-mono text-xs space-y-0.5">
+            {logs.length === 0 ? (
+              <p className="text-muted-foreground p-2">
+                Run optimization to see logs...
+              </p>
+            ) : (
+              logs.map((log, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "px-2 py-0.5 rounded",
+                    log.level === 'error' && "text-destructive bg-destructive/10",
+                    log.level === 'success' && "text-green-500 bg-green-500/10",
+                    log.level === 'warning' && "text-yellow-500 bg-yellow-500/10",
+                    log.level === 'info' && "text-muted-foreground"
+                  )}
+                >
+                  <span className="text-muted-foreground/50 mr-2">
+                    {log.timestamp.toLocaleTimeString()}
+                  </span>
+                  {log.message}
+                </div>
+              ))
+            )}
+            <div ref={logsEndRef} />
           </div>
         </TabsContent>
       </Tabs>

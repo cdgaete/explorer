@@ -19,10 +19,17 @@ export interface OptimizationProgress {
   error?: string
 }
 
+export interface LogEntry {
+  timestamp: Date
+  message: string
+  level: 'info' | 'warning' | 'error' | 'success'
+}
+
 interface NetworkState {
   networks: Network[]
   selectedNetworkId: string | null
   optimization: OptimizationProgress
+  logs: LogEntry[]
   wsConnected: boolean
 
   // Actions
@@ -31,6 +38,8 @@ interface NetworkState {
   selectNetwork: (id: string | null) => void
   updateOptimization: (progress: OptimizationProgress) => void
   updateNetworkOptStatus: (id: string, status: Network['optStatus']) => void
+  addLog: (message: string, level?: LogEntry['level']) => void
+  clearLogs: () => void
   setWsConnected: (connected: boolean) => void
 }
 
@@ -44,6 +53,7 @@ export const useNetworkStore = create<NetworkState>()(
         progress: 0,
         message: '',
       },
+      logs: [],
       wsConnected: false,
 
       setNetworks: (networks) => set({ networks }),
@@ -63,6 +73,13 @@ export const useNetworkStore = create<NetworkState>()(
             n.id === id ? { ...n, optStatus: status } : n
           ),
         })),
+
+      addLog: (message, level = 'info') =>
+        set((state) => ({
+          logs: [...state.logs, { timestamp: new Date(), message, level }],
+        })),
+
+      clearLogs: () => set({ logs: [] }),
 
       setWsConnected: (connected) => set({ wsConnected: connected }),
     }),
