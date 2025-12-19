@@ -173,7 +173,14 @@
       padding: 60px;
       color: var(--text-muted);
     }
+    #map {
+      height: 100%;
+      width: 100%;
+      background: var(--bg-tertiary);
+    }
   </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
   <div class="header">
@@ -194,7 +201,8 @@
     
     <div class="content">
       <div class="tabs">
-        <div class="tab active" data-tab="buses">Buses</div>
+        <div class="tab active" data-tab="map">Map</div>
+        <div class="tab" data-tab="buses">Buses</div>
         <div class="tab" data-tab="generators">Generators</div>
         <div class="tab" data-tab="lines">Lines</div>
         <div class="tab" data-tab="loads">Loads</div>
@@ -202,7 +210,8 @@
       </div>
       
       <div class="tab-content">
-        <div id="buses" class="tab-panel active"></div>
+        <div id="map" class="tab-panel active" style="padding: 0;"></div>
+        <div id="buses" class="tab-panel"></div>
         <div id="generators" class="tab-panel"></div>
         <div id="lines" class="tab-panel"></div>
         <div id="loads" class="tab-panel"></div>
@@ -220,6 +229,17 @@
   </div>
   <script>
     let selectedNetwork = null;
+    let map = null;
+    let mapLayers = { buses: null, lines: null, links: null };
+    
+    // Initialize map
+    function initMap() {
+      if (map) return;
+      map = L.map('map').setView([50, 10], 4);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+      }).addTo(map);
+    }
     
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
@@ -228,6 +248,10 @@
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         tab.classList.add('active');
         document.getElementById(tab.dataset.tab).classList.add('active');
+        // Resize map when switching to map tab
+        if (tab.dataset.tab === 'map' && map) {
+          setTimeout(() => map.invalidateSize(), 100);
+        }
       });
     });
     
@@ -285,12 +309,70 @@
       
       // Load all component data
       await Promise.all([
+        loadMap(networkId),
         loadBuses(networkId),
         loadGenerators(networkId),
         loadLines(networkId),
         loadLoads(networkId),
         loadLinks(networkId),
       ]);
+    }
+    
+    async function loadMap(networkId) {
+      initMap();
+      
+      // Clear existing layers
+      Object.values(mapLayers).forEach(layer => {
+        if (layer) map.removeLayer(layer);
+      });
+      
+      try {
+        const [busData, lineData, linkData] = await Promise.all([
+          window.backendAPI.get(`/networks/${networkId}/buses`),
+          window.backendAPI.get(`/networks/${networkId}/lines`),
+          window.backendAPI.get(`/networks/${networkId}/links`),
+        ]);
+        
+        const buses = busData.buses;
+        const busMap = {};
+        buses.forEach(b => { busMap[b.name] = b; });
+        
+        // Draw lines
+        const lineCoords = lineData.lines
+          .filter(l => busMap[l.bus0] && busMap[l.bus1])
+          .map(l => [[busMap[l.bus0].y, busMap[l.bus0].x], [busMap[l.bus1].y, busMap[l.bus1].x]]);
+        if (lineCoords.length > 0) {
+          mapLayers.lines = L.polyline(lineCoords, { color: '#4a9eff', weight: 2 }).addTo(map);
+        }
+        
+        // Draw links (DC lines)
+        const linkCoords = linkData.links
+          .filter(l => busMap[l.bus0] && busMap[l.bus1])
+          .map(l => [[busMap[l.bus0].y, busMap[l.bus0].x], [busMap[l.bus1].y, busMap[l.bus1].x]]);
+        if (linkCoords.length > 0) {
+          mapLayers.links = L.polyline(linkCoords, { color: '#e94560', weight: 2, dashArray: '5,5' }).addTo(map);
+        }
+        
+        // Draw buses
+        const busMarkers = buses
+          .filter(b => b.x !== 0 || b.y !== 0)
+          .map(b => L.circleMarker([b.y, b.x], {
+            radius: 8,
+            fillColor: b.carrier === 'DC' ? '#e94560' : '#4a9eff',
+            color: '#fff',
+            weight: 2,
+            fillOpacity: 0.8
+          }).bindPopup(`<b>${b.name}</b><br>Carrier: ${b.carrier}<br>V: ${b.v_nom} kV`));
+        
+        if (busMarkers.length > 0) {
+          mapLayers.buses = L.layerGroup(busMarkers).addTo(map);
+          // Fit map to bounds with more padding
+          const bounds = L.latLngBounds(buses.filter(b => b.x || b.y).map(b => [b.y, b.x]));
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 6 });
+        }
+      } catch (e) {
+        console.error('Failed to load map:', e);
+      }
     }
     
     function renderTable(data, columns) {
