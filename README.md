@@ -17,6 +17,44 @@ Build a modern desktop application that enables users to:
 - **React** with **shadcn/ui** for a modern, accessible component library
 - Responsive panel-based layout with collapsible sections
 
+### Frontend Visualization Libraries
+
+| Component | Library | Notes |
+|-----------|---------|-------|
+| **Charts** | shadcn/ui Charts | Built on Recharts, matches UI design system |
+| **Data Tables** | TanStack Table | Powerful, headless, shadcn integration |
+| **Network Maps** | MapLibre + deck.gl | GPU-powered, handles large networks |
+| **Workflow Diagrams** | Mermaid | Flowcharts, sequence diagrams, state machines |
+
+#### Charts (shadcn/ui Charts)
+- Time-series plots for energy dispatch
+- Bar charts for capacity/generation mix
+- Area charts for load profiles
+- Built on Recharts, no abstraction lock-in
+
+#### Network Maps (MapLibre + deck.gl)
+```
+┌─────────────────────────────────────────┐
+│           MapLibre (Base Map)           │
+│  ┌───────────────────────────────────┐  │
+│  │        deck.gl Layers             │  │
+│  │  - IconLayer (buses, generators)  │  │
+│  │  - LineLayer (transmission lines) │  │
+│  │  - HeatmapLayer (flow intensity)  │  │
+│  │  - ScatterplotLayer (load nodes)  │  │
+│  └───────────────────────────────────┘  │
+└─────────────────────────────────────────┘
+```
+- **MapLibre**: Open-source Mapbox fork (no API key required)
+- **deck.gl**: WebGL-powered, GPU rendering for 1000s of nodes/lines
+- Smooth pan/zoom with large datasets
+
+#### Workflow Diagrams (Mermaid)
+- Optimization workflow visualization
+- Model build pipeline diagrams
+- Uses `@mermaid-js/react-wrapper` for React integration
+- Text-based diagram definitions (easy to generate from backend)
+
 ### Backend
 - **FastAPI** server running as subprocess for API and WebSocket communication
 - **PyPSA** (Python for Power System Analysis) for energy network modeling
@@ -272,6 +310,10 @@ The application provides configuration menus for both optimization solvers and A
 |-------|------------|-------|
 | UI Framework | React 18+ | Modern React with hooks |
 | UI Components | shadcn/ui | Tailwind-based, accessible |
+| Charts | shadcn/ui Charts | Recharts-based, time-series & dispatch |
+| Data Tables | TanStack Table | Headless, virtualized, shadcn styled |
+| Network Maps | MapLibre + deck.gl | GPU-powered geographic visualization |
+| Diagrams | Mermaid | Workflow and pipeline diagrams |
 | State Management | TBD | Zustand, Jotai, or Redux Toolkit |
 | Desktop Runtime | TBD | Electron or Tauri |
 | Backend Server | FastAPI | Async Python web framework |
