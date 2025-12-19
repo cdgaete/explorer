@@ -430,17 +430,37 @@ pixi-pack --platform osx-arm64 --create-executable dist/explorer-macos.sh
 
 ### Desktop Runtime Candidates
 
-| Framework | Pros | Cons |
-|-----------|------|------|
-| **Electron** | Mature, large ecosystem, easy subprocess management | Large bundle size (~150MB+), high memory |
-| **Tauri** | Small bundle (~10MB), Rust backend, secure, sidecar pattern | Newer, smaller ecosystem |
+| Aspect | Electron | Tauri |
+|--------|----------|-------|
+| **App Size** | 80-120 MB | 2-10 MB |
+| **Memory Usage** | ~100+ MB | ~30-40 MB |
+| **Startup Time** | 1-2 seconds | <500 ms |
+| **Python Integration** | `child_process` (easy) | Sidecar (built-in) |
+| **WebView** | Bundled Chromium | System WebView |
+| **Ecosystem** | Very mature | Growing rapidly |
 
-### Key Evaluation Criteria
-- Python subprocess lifecycle management
-- WebSocket support for streaming
-- Bundle size and performance
-- Cross-platform support
-- Developer experience
+### Evaluation Approach
+
+Build and compare toy apps with FastAPI backend:
+
+| Document | Description |
+|----------|-------------|
+| [Framework Comparison](docs/framework-evaluation/README.md) | Detailed comparison for our use case |
+| [Electron Toy App](docs/framework-evaluation/electron-toy-app.md) | Step-by-step Electron + FastAPI setup |
+| [Tauri Toy App](docs/framework-evaluation/tauri-toy-app.md) | Step-by-step Tauri + FastAPI sidecar setup |
+
+### Test Criteria
+
+| Criteria | Electron | Tauri |
+|----------|----------|-------|
+| Setup complexity | ⬜ | ⬜ |
+| FastAPI subprocess starts reliably | ⬜ | ⬜ |
+| WebSocket works | ⬜ | ⬜ |
+| App shutdown kills subprocess | ⬜ | ⬜ |
+| Hot reload during development | ⬜ | ⬜ |
+| Build size (production) | ⬜ | ⬜ |
+| Memory usage | ⬜ | ⬜ |
+| Startup time | ⬜ | ⬜ |
 
 ## Development Roadmap
 
