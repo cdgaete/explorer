@@ -197,6 +197,10 @@ export function BottomPanel() {
 
         <TabsContent value="jobs" className="flex-1 overflow-auto">
           <div className="p-4 space-y-3">
+            {/* Debug info */}
+            <div className="text-xs text-muted-foreground bg-muted p-2 rounded">
+              Total jobs in store: {jobs.length} | Active: {activeJobs.length}
+            </div>
             {activeJobs.length === 0 ? (
               <div className="text-muted-foreground text-sm">
                 No jobs in queue. Click Run on a network to start an optimization.

@@ -39,6 +39,7 @@ export function useWebSocket() {
 
         // Handle job_queue messages first (no network_id required)
         if (msg.type === 'job_queue') {
+          console.log('Received job_queue:', msg.jobs)
           setJobs(msg.jobs || [])
           return
         }
