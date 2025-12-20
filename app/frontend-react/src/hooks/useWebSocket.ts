@@ -8,7 +8,7 @@ export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
   const wasConnectedRef = useRef(false)
-  const { updateOptimization, updateNetworkOptStatus, setWsConnected, addLog, clearLogs } = useNetworkStore()
+  const { updateOptimization, updateNetworkOptStatus, setWsConnected, addLog, clearLogs, setJobs } = useNetworkStore()
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -49,7 +49,9 @@ export function useWebSocket() {
           })
 
           // Add log entries for optimization events
-          if (msg.status === 'starting') {
+          if (msg.status === 'queued') {
+            addLog(networkId, `Job queued for optimization...`, 'info')
+          } else if (msg.status === 'starting') {
             clearLogs(networkId)
             addLog(networkId, `Starting optimization...`, 'info')
           } else if (msg.message) {
@@ -74,6 +76,8 @@ export function useWebSocket() {
             updateNetworkOptStatus(networkId, 'completed')
           } else if (msg.status === 'running' || msg.status === 'starting') {
             updateNetworkOptStatus(networkId, 'running')
+          } else if (msg.status === 'queued') {
+            updateNetworkOptStatus(networkId, 'queued')
           } else if (msg.status === 'failed') {
             updateNetworkOptStatus(networkId, 'failed')
           } else if (msg.status === 'cancelled') {
@@ -82,6 +86,10 @@ export function useWebSocket() {
         } else if (msg.type === 'optimization_log') {
           // Solver stdout logs
           addLog(networkId, msg.log, 'info')
+        } else if (msg.type === 'job_queue') {
+          // Update jobs list (no networkId check needed - msg.jobs is the full list)
+          setJobs(msg.jobs || [])
+          return
         }
       } catch (e) {
         console.error('Failed to parse WebSocket message:', e)
@@ -89,7 +97,7 @@ export function useWebSocket() {
     }
 
     wsRef.current = ws
-  }, [updateOptimization, updateNetworkOptStatus, setWsConnected, addLog, clearLogs])
+  }, [updateOptimization, updateNetworkOptStatus, setWsConnected, addLog, clearLogs, setJobs])
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

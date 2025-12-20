@@ -29,6 +29,16 @@ class ApiClient {
     return response.json()
   }
 
+  async delete<T>(path: string): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`)
+    }
+    return response.json()
+  }
+
   async uploadFile(file: File): Promise<NetworkInfo> {
     const formData = new FormData()
     formData.append('file', file)

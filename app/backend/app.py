@@ -38,6 +38,12 @@ optimization_processes: dict[str, Process] = {}
 # Queue for log messages from optimization
 log_queue: queue.Queue = queue.Queue()
 
+# Job queue for FIFO optimization scheduling
+job_queue: list[dict] = []  # List of {id, network_id, solver, status, created_at, started_at, completed_at}
+job_queue_lock = threading.Lock()
+current_job_id: int = 0
+job_processor_task = None
+
 
 class LogCapture(io.StringIO):
     """Capture stdout and put lines into a queue."""
@@ -187,11 +193,349 @@ def run_optimization_worker(network_path: str, network_id: str, solver: str, res
             "error": str(e),
         })
 
+def get_next_job_id():
+    """Get the next job ID."""
+    global current_job_id
+    with job_queue_lock:
+        current_job_id += 1
+        return current_job_id
+
+
+def add_job_to_queue(network_id: str, solver: str) -> dict:
+    """Add a new job to the queue."""
+    job = {
+        "id": get_next_job_id(),
+        "network_id": network_id,
+        "solver": solver,
+        "status": "queued",
+        "created_at": datetime.now().isoformat(),
+        "started_at": None,
+        "completed_at": None,
+        "error": None,
+    }
+    with job_queue_lock:
+        job_queue.append(job)
+    return job
+
+
+def get_job_by_id(job_id: int) -> dict | None:
+    """Get a job by ID."""
+    with job_queue_lock:
+        for job in job_queue:
+            if job["id"] == job_id:
+                return job.copy()
+    return None
+
+
+def get_running_job() -> dict | None:
+    """Get the currently running job."""
+    with job_queue_lock:
+        for job in job_queue:
+            if job["status"] == "running":
+                return job.copy()
+    return None
+
+
+def get_queued_jobs() -> list[dict]:
+    """Get all queued jobs."""
+    with job_queue_lock:
+        return [j.copy() for j in job_queue if j["status"] == "queued"]
+
+
+async def broadcast_job_queue():
+    """Broadcast the current job queue to all clients."""
+    with job_queue_lock:
+        queue_copy = [j.copy() for j in job_queue]
+    await broadcast({
+        "type": "job_queue",
+        "jobs": queue_copy,
+    })
+
+
+async def run_optimization_job(job: dict):
+    """Run a single optimization job."""
+    network_id = job["network_id"]
+    solver = job["solver"]
+    job_id = job["id"]
+
+    if network_id not in networks:
+        with job_queue_lock:
+            for j in job_queue:
+                if j["id"] == job_id:
+                    j["status"] = "failed"
+                    j["error"] = f"Network '{network_id}' not found"
+                    j["completed_at"] = datetime.now().isoformat()
+        await broadcast_job_queue()
+        return
+
+    n = networks[network_id]
+
+    # Update job status
+    with job_queue_lock:
+        for j in job_queue:
+            if j["id"] == job_id:
+                j["status"] = "running"
+                j["started_at"] = datetime.now().isoformat()
+
+    await broadcast_job_queue()
+
+    # Initialize optimization status
+    optimization_status[network_id] = {
+        "running": True,
+        "progress": 0,
+        "status": "starting",
+        "started_at": datetime.now().isoformat(),
+    }
+
+    await broadcast({
+        "type": "optimization_status",
+        "network_id": network_id,
+        "status": "starting",
+        "progress": 0,
+    })
+
+    # Save network to temp file for the worker process
+    temp_dir = tempfile.mkdtemp()
+    network_path = os.path.join(temp_dir, f"{network_id}.nc")
+
+    try:
+        await broadcast({
+            "type": "optimization_status",
+            "network_id": network_id,
+            "status": "running",
+            "progress": 5,
+            "message": "Preparing network for optimization...",
+        })
+
+        # Export network to temp file
+        n.export_to_netcdf(network_path)
+
+        await broadcast({
+            "type": "optimization_status",
+            "network_id": network_id,
+            "status": "running",
+            "progress": 10,
+            "message": "Starting optimization process...",
+        })
+
+        # Create queues for inter-process communication
+        result_queue = MPQueue()
+        mp_log_queue = MPQueue()
+
+        # Start optimization in separate process
+        proc = Process(
+            target=run_optimization_worker,
+            args=(network_path, network_id, solver, result_queue, mp_log_queue)
+        )
+        proc.start()
+        optimization_processes[network_id] = proc
+
+        await broadcast({
+            "type": "optimization_status",
+            "network_id": network_id,
+            "status": "running",
+            "progress": 30,
+            "message": "Solving optimization problem...",
+        })
+
+        # Monitor process and collect logs
+        while proc.is_alive():
+            # Process log messages
+            while True:
+                try:
+                    msg = mp_log_queue.get_nowait()
+                    if msg.get("network_id") == network_id:
+                        await broadcast({
+                            "type": "optimization_log",
+                            "network_id": network_id,
+                            "log": msg.get("log", ""),
+                        })
+                except:
+                    break
+
+            # Check if cancelled
+            if network_id not in optimization_processes:
+                # Was cancelled
+                with job_queue_lock:
+                    for j in job_queue:
+                        if j["id"] == job_id:
+                            j["status"] = "cancelled"
+                            j["completed_at"] = datetime.now().isoformat()
+                await broadcast_job_queue()
+                return
+
+            await asyncio.sleep(0.1)
+
+        # Process remaining logs
+        while True:
+            try:
+                msg = mp_log_queue.get_nowait()
+                if msg.get("network_id") == network_id:
+                    await broadcast({
+                        "type": "optimization_log",
+                        "network_id": network_id,
+                        "log": msg.get("log", ""),
+                    })
+            except:
+                break
+
+        # Get result
+        try:
+            result = result_queue.get_nowait()
+        except:
+            result = {"success": False, "error": "No result from optimization process"}
+
+        # Clean up process reference
+        optimization_processes.pop(network_id, None)
+
+        if result.get("success"):
+            status = result.get("status")
+            termination = result.get("termination")
+            objective = result.get("objective")
+
+            # Reload the optimized network to get results
+            n_optimized = pypsa.Network(network_path)
+            networks[network_id] = n_optimized
+
+            await broadcast({
+                "type": "optimization_status",
+                "network_id": network_id,
+                "status": "running",
+                "progress": 90,
+                "message": "Extracting results...",
+            })
+
+            optimization_status[network_id] = {
+                "running": False,
+                "progress": 100,
+                "status": "completed",
+                "termination": termination,
+                "objective": objective,
+                "completed_at": datetime.now().isoformat(),
+            }
+
+            await broadcast({
+                "type": "optimization_status",
+                "network_id": network_id,
+                "status": "completed",
+                "progress": 100,
+                "termination": termination,
+                "objective": objective,
+            })
+
+            # Update job status
+            with job_queue_lock:
+                for j in job_queue:
+                    if j["id"] == job_id:
+                        j["status"] = "completed"
+                        j["completed_at"] = datetime.now().isoformat()
+
+        else:
+            error = result.get("error", "Unknown error")
+            optimization_status[network_id] = {
+                "running": False,
+                "progress": 0,
+                "status": "failed",
+                "error": error,
+            }
+
+            await broadcast({
+                "type": "optimization_status",
+                "network_id": network_id,
+                "status": "failed",
+                "error": error,
+            })
+
+            # Update job status
+            with job_queue_lock:
+                for j in job_queue:
+                    if j["id"] == job_id:
+                        j["status"] = "failed"
+                        j["error"] = error
+                        j["completed_at"] = datetime.now().isoformat()
+
+    except Exception as e:
+        optimization_status[network_id] = {
+            "running": False,
+            "progress": 0,
+            "status": "failed",
+            "error": str(e),
+        }
+
+        await broadcast({
+            "type": "optimization_status",
+            "network_id": network_id,
+            "status": "failed",
+            "error": str(e),
+        })
+
+        # Update job status
+        with job_queue_lock:
+            for j in job_queue:
+                if j["id"] == job_id:
+                    j["status"] = "failed"
+                    j["error"] = str(e)
+                    j["completed_at"] = datetime.now().isoformat()
+
+    finally:
+        # Clean up temp directory
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
+        optimization_processes.pop(network_id, None)
+        await broadcast_job_queue()
+
+
+async def process_job_queue():
+    """Background task that processes jobs one at a time."""
+    while True:
+        try:
+            # Find next queued job
+            next_job = None
+            with job_queue_lock:
+                for job in job_queue:
+                    if job["status"] == "queued":
+                        next_job = job
+                        break
+
+            if next_job:
+                await run_optimization_job(next_job)
+            else:
+                await asyncio.sleep(0.5)
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[Job Queue] Error: {e}")
+            await asyncio.sleep(1.0)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
+    global job_processor_task
     print(f"[Backend] Starting with PyPSA {pypsa.__version__}")
+
+    # Start the job processor
+    job_processor_task = asyncio.create_task(process_job_queue())
+
     yield
+
+    # Cancel job processor
+    if job_processor_task:
+        job_processor_task.cancel()
+        try:
+            await job_processor_task
+        except asyncio.CancelledError:
+            pass
+
+    # Terminate any running processes
+    for proc in optimization_processes.values():
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=1.0)
+
     print("[Backend] Shutting down")
     networks.clear()
 
@@ -413,203 +757,112 @@ class OptimizeRequest(BaseModel):
 
 @app.post("/networks/{network_id}/optimize")
 async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeRequest()):
-    """Run optimization on a network using a separate process (cancellable)."""
+    """Queue an optimization job for a network."""
     if network_id not in networks:
         raise HTTPException(404, f"Network '{network_id}' not found")
 
-    if network_id in optimization_status and optimization_status[network_id].get("running"):
-        raise HTTPException(400, f"Optimization already running for '{network_id}'")
+    # Check if there's already a queued or running job for this network
+    with job_queue_lock:
+        for job in job_queue:
+            if job["network_id"] == network_id and job["status"] in ["queued", "running"]:
+                raise HTTPException(400, f"Optimization already queued or running for '{network_id}'")
 
-    n = networks[network_id]
+    # Add job to queue
+    job = add_job_to_queue(network_id, request.solver)
 
-    # Initialize status
+    # Broadcast updated queue
+    await broadcast_job_queue()
+
+    # Set initial status to queued
     optimization_status[network_id] = {
-        "running": True,
+        "running": False,
         "progress": 0,
-        "status": "starting",
-        "started_at": datetime.now().isoformat(),
+        "status": "queued",
+        "queued_at": datetime.now().isoformat(),
     }
 
     await broadcast({
         "type": "optimization_status",
         "network_id": network_id,
-        "status": "starting",
+        "status": "queued",
         "progress": 0,
+        "message": "Job queued for optimization...",
     })
 
-    # Save network to temp file for the worker process
-    temp_dir = tempfile.mkdtemp()
-    network_path = os.path.join(temp_dir, f"{network_id}.nc")
+    return {
+        "status": "queued",
+        "job_id": job["id"],
+        "position": len(get_queued_jobs()),
+    }
 
-    try:
-        await broadcast({
-            "type": "optimization_status",
-            "network_id": network_id,
-            "status": "running",
-            "progress": 5,
-            "message": "Preparing network for optimization...",
-        })
 
-        # Export network to temp file
-        n.export_to_netcdf(network_path)
+@app.get("/jobs")
+async def get_jobs():
+    """Get all jobs in the queue."""
+    with job_queue_lock:
+        return {"jobs": [j.copy() for j in job_queue]}
 
-        await broadcast({
-            "type": "optimization_status",
-            "network_id": network_id,
-            "status": "running",
-            "progress": 10,
-            "message": "Starting optimization process...",
-        })
 
-        # Create queues for inter-process communication
-        result_queue = MPQueue()
-        mp_log_queue = MPQueue()
+@app.delete("/jobs/{job_id}")
+async def cancel_job(job_id: int):
+    """Cancel a queued job (remove from queue) or cancel running job."""
+    # Find the job and determine action while holding lock
+    job_found = False
+    job_status = None
+    network_id = None
+    already_done = False
 
-        # Start optimization in separate process
-        proc = Process(
-            target=run_optimization_worker,
-            args=(network_path, network_id, request.solver, result_queue, mp_log_queue)
-        )
-        proc.start()
-        optimization_processes[network_id] = proc
+    with job_queue_lock:
+        for job in job_queue:
+            if job["id"] == job_id:
+                job_found = True
+                job_status = job["status"]
+                network_id = job["network_id"]
 
-        await broadcast({
-            "type": "optimization_status",
-            "network_id": network_id,
-            "status": "running",
-            "progress": 30,
-            "message": "Solving optimization problem...",
-        })
-
-        # Monitor process and collect logs
-        while proc.is_alive():
-            # Process log messages
-            while True:
-                try:
-                    msg = mp_log_queue.get_nowait()
-                    if msg.get("network_id") == network_id:
-                        await broadcast({
-                            "type": "optimization_log",
-                            "network_id": network_id,
-                            "log": msg.get("log", ""),
-                        })
-                except:
-                    break
-
-            # Check if cancelled
-            if network_id not in optimization_processes:
-                # Was cancelled
-                return {"status": "cancelled"}
-
-            await asyncio.sleep(0.1)
-
-        # Process remaining logs
-        while True:
-            try:
-                msg = mp_log_queue.get_nowait()
-                if msg.get("network_id") == network_id:
-                    await broadcast({
-                        "type": "optimization_log",
-                        "network_id": network_id,
-                        "log": msg.get("log", ""),
-                    })
-            except:
+                if job_status == "queued":
+                    job["status"] = "cancelled"
+                    job["completed_at"] = datetime.now().isoformat()
+                elif job_status == "running":
+                    job["status"] = "cancelled"
+                    job["completed_at"] = datetime.now().isoformat()
+                else:
+                    already_done = True
                 break
 
-        # Get result
-        try:
-            result = result_queue.get_nowait()
-        except:
-            result = {"success": False, "error": "No result from optimization process"}
+    if not job_found:
+        raise HTTPException(404, f"Job {job_id} not found")
 
-        # Clean up process reference
-        optimization_processes.pop(network_id, None)
+    if already_done:
+        raise HTTPException(400, f"Job is already {job_status}")
 
-        if result.get("success"):
-            status = result.get("status")
-            termination = result.get("termination")
-            objective = result.get("objective")
+    # Handle running job cancellation (outside the lock)
+    if job_status == "running":
+        proc = optimization_processes.pop(network_id, None)
+        if proc and proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=2.0)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(timeout=1.0)
 
-            # Reload the optimized network to get results
-            n_optimized = pypsa.Network(network_path)
-            networks[network_id] = n_optimized
-
-            await broadcast({
-                "type": "optimization_status",
-                "network_id": network_id,
-                "status": "running",
-                "progress": 90,
-                "message": "Extracting results...",
-            })
-
-            optimization_status[network_id] = {
-                "running": False,
-                "progress": 100,
-                "status": "completed",
-                "termination": termination,
-                "objective": objective,
-                "completed_at": datetime.now().isoformat(),
-            }
-
-            await broadcast({
-                "type": "optimization_status",
-                "network_id": network_id,
-                "status": "completed",
-                "progress": 100,
-                "termination": termination,
-                "objective": objective,
-            })
-
-            return {
-                "status": "completed",
-                "termination": termination,
-                "objective": objective,
-            }
-        else:
-            error = result.get("error", "Unknown error")
-            optimization_status[network_id] = {
-                "running": False,
-                "progress": 0,
-                "status": "failed",
-                "error": error,
-            }
-
-            await broadcast({
-                "type": "optimization_status",
-                "network_id": network_id,
-                "status": "failed",
-                "error": error,
-            })
-
-            raise HTTPException(500, f"Optimization failed: {error}")
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
         optimization_status[network_id] = {
             "running": False,
             "progress": 0,
-            "status": "failed",
-            "error": str(e),
+            "status": "cancelled",
+            "cancelled_at": datetime.now().isoformat(),
         }
 
         await broadcast({
             "type": "optimization_status",
             "network_id": network_id,
-            "status": "failed",
-            "error": str(e),
+            "status": "cancelled",
+            "progress": 0,
         })
 
-        raise HTTPException(500, f"Optimization failed: {str(e)}")
+    # Broadcast updated queue
+    await broadcast_job_queue()
+    return {"status": "cancelled"}
 
-    finally:
-        # Clean up temp directory
-        try:
-            shutil.rmtree(temp_dir)
-        except:
-            pass
-        optimization_processes.pop(network_id, None)
 
 @app.get("/networks/{network_id}/optimization-status")
 def get_optimization_status(network_id: str):

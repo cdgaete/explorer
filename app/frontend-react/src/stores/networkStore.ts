@@ -9,15 +9,26 @@ export interface Network {
   lines: number
   loads: number
   links: number
-  optStatus: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
+  optStatus: 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 }
 
 export interface OptimizationProgress {
   networkId: string | null
-  status: 'idle' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled'
+  status: 'idle' | 'queued' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled'
   progress: number
   message: string
   error?: string
+}
+
+export interface Job {
+  id: number
+  network_id: string
+  solver: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  error: string | null
 }
 
 export interface LogEntry {
@@ -32,6 +43,7 @@ interface NetworkState {
   selectedNetworkId: string | null
   optimization: OptimizationProgress
   logs: LogEntry[]
+  jobs: Job[]
   wsConnected: boolean
 
   // Actions
@@ -42,6 +54,7 @@ interface NetworkState {
   updateNetworkOptStatus: (id: string, status: Network['optStatus']) => void
   addLog: (networkId: string, message: string, level?: LogEntry['level']) => void
   clearLogs: (networkId: string) => void
+  setJobs: (jobs: Job[]) => void
   setWsConnected: (connected: boolean) => void
 }
 
@@ -57,6 +70,7 @@ export const useNetworkStore = create<NetworkState>()(
         message: '',
       },
       logs: [],
+      jobs: [],
       wsConnected: false,
 
       setNetworks: (networks) => set({ networks }),
@@ -87,6 +101,8 @@ export const useNetworkStore = create<NetworkState>()(
         set((state) => ({
           logs: state.logs.filter((log) => log.networkId !== networkId),
         })),
+
+      setJobs: (jobs) => set({ jobs }),
 
       setWsConnected: (connected) => set({ wsConnected: connected }),
     }),

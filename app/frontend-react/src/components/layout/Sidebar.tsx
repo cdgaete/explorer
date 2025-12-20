@@ -52,6 +52,7 @@ function NetworkCard({ network, isSelected, onClick }: NetworkCardProps) {
               "text-xs mt-1",
               network.optStatus === 'completed' && "text-green-500",
               network.optStatus === 'running' && "text-primary",
+              network.optStatus === 'queued' && "text-blue-500",
               network.optStatus === 'failed' && "text-destructive",
               network.optStatus === 'cancelled' && "text-yellow-500",
               network.optStatus === 'idle' && "text-muted-foreground"
@@ -61,6 +62,8 @@ function NetworkCard({ network, isSelected, onClick }: NetworkCardProps) {
               ? '✓ solved'
               : network.optStatus === 'running'
               ? '⏳ solving...'
+              : network.optStatus === 'queued'
+              ? '⏱ queued'
               : network.optStatus === 'failed'
               ? '✗ failed'
               : network.optStatus === 'cancelled'
