@@ -130,6 +130,9 @@ def run_optimization_worker(network_path: str, network_id: str, solver: str, res
             status, termination = n.optimize(solver_name=solver)
             objective = float(n.objective) if hasattr(n, 'objective') and n.objective is not None else None
 
+            # Save optimized network back to temp file so main process can reload it
+            n.export_to_netcdf(network_path)
+
             result_queue.put({
                 "success": True,
                 "status": status,
