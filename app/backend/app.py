@@ -98,12 +98,19 @@ def run_optimization_worker(network_path: str, network_id: str, solver: str, res
         # Load the network in this process
         n = pypsa.Network(network_path)
 
-        # Set up logging to capture solver output
-        log_handler = logging.Handler()
-        log_handler.emit = lambda record: log_queue.put({
-            "network_id": network_id,
-            "log": record.getMessage()
-        })
+        # Set up logging handler to capture pypsa/linopy logs
+        class QueueHandler(logging.Handler):
+            def emit(self, record):
+                try:
+                    msg = self.format(record)
+                    for line in msg.split('\n'):
+                        if line.strip():
+                            log_queue.put({"network_id": network_id, "log": line})
+                except Exception:
+                    pass
+
+        log_handler = QueueHandler()
+        log_handler.setFormatter(logging.Formatter('%(name)s: %(message)s'))
         log_handler.setLevel(logging.INFO)
 
         for logger_name in ['pypsa', 'linopy']:
@@ -111,20 +118,34 @@ def run_optimization_worker(network_path: str, network_id: str, solver: str, res
             logger.setLevel(logging.INFO)
             logger.addHandler(log_handler)
 
-        # Capture stdout for HiGHS output
-        class StdoutCapture:
-            def __init__(self):
-                self.original = sys.stdout
-            def write(self, text):
-                self.original.write(text)
-                for line in text.split('\n'):
-                    if line.strip():
-                        log_queue.put({"network_id": network_id, "log": line})
-            def flush(self):
-                self.original.flush()
+        # Capture C-level stdout/stderr for HiGHS solver output using file descriptor redirection
+        stdout_fd = sys.stdout.fileno()
+        stderr_fd = sys.stderr.fileno()
+        saved_stdout_fd = os.dup(stdout_fd)
+        saved_stderr_fd = os.dup(stderr_fd)
 
-        old_stdout = sys.stdout
-        sys.stdout = StdoutCapture()
+        # Create pipes to capture output
+        stdout_read_fd, stdout_write_fd = os.pipe()
+        stderr_read_fd, stderr_write_fd = os.pipe()
+
+        # Redirect stdout/stderr to write end of pipes
+        os.dup2(stdout_write_fd, stdout_fd)
+        os.dup2(stderr_write_fd, stderr_fd)
+
+        # Thread to read from pipes and put into queue
+        def pipe_reader(read_fd):
+            with os.fdopen(read_fd, 'r', buffering=1) as f:
+                for line in f:
+                    line = line.rstrip('\n')
+                    if line:
+                        log_queue.put({"network_id": network_id, "log": line})
+
+        stdout_thread = threading.Thread(target=pipe_reader, args=(stdout_read_fd,))
+        stderr_thread = threading.Thread(target=pipe_reader, args=(stderr_read_fd,))
+        stdout_thread.daemon = True
+        stderr_thread.daemon = True
+        stdout_thread.start()
+        stderr_thread.start()
 
         try:
             status, termination = n.optimize(solver_name=solver)
@@ -140,7 +161,25 @@ def run_optimization_worker(network_path: str, network_id: str, solver: str, res
                 "objective": objective,
             })
         finally:
-            sys.stdout = old_stdout
+            # Flush and restore file descriptors
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+            os.close(stdout_write_fd)
+            os.close(stderr_write_fd)
+
+            os.dup2(saved_stdout_fd, stdout_fd)
+            os.dup2(saved_stderr_fd, stderr_fd)
+            os.close(saved_stdout_fd)
+            os.close(saved_stderr_fd)
+
+            stdout_thread.join(timeout=1.0)
+            stderr_thread.join(timeout=1.0)
+
+            # Remove logging handlers
+            for logger_name in ['pypsa', 'linopy']:
+                logger = logging.getLogger(logger_name)
+                logger.removeHandler(log_handler)
 
     except Exception as e:
         result_queue.put({

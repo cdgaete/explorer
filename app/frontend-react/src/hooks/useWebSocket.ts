@@ -37,8 +37,11 @@ export function useWebSocket() {
         const msg = JSON.parse(event.data)
         console.log('WS message:', msg)
 
+        const networkId = msg.network_id
+        if (!networkId) return
+
         if (msg.type === 'optimization_status') {
-          updateOptimization({
+          updateOptimization(networkId, {
             status: msg.status,
             progress: msg.progress || 0,
             message: msg.message || '',
@@ -47,40 +50,38 @@ export function useWebSocket() {
 
           // Add log entries for optimization events
           if (msg.status === 'starting') {
-            clearLogs()
-            addLog(`Starting optimization for network ${msg.network_id}...`, 'info')
+            clearLogs(networkId)
+            addLog(networkId, `Starting optimization...`, 'info')
           } else if (msg.message) {
-            addLog(msg.message, 'info')
+            addLog(networkId, msg.message, 'info')
           }
 
           if (msg.status === 'completed') {
-            addLog(`Optimization completed successfully`, 'success')
+            addLog(networkId, `Optimization completed successfully`, 'success')
             if (msg.objective !== undefined) {
-              addLog(`Objective value: ${msg.objective.toLocaleString()}`, 'info')
+              addLog(networkId, `Objective value: ${msg.objective.toLocaleString()}`, 'info')
             }
             if (msg.termination) {
-              addLog(`Termination: ${msg.termination}`, 'info')
+              addLog(networkId, `Termination: ${msg.termination}`, 'info')
             }
           } else if (msg.status === 'failed') {
-            addLog(`Optimization failed: ${msg.error || 'Unknown error'}`, 'error')
+            addLog(networkId, `Optimization failed: ${msg.error || 'Unknown error'}`, 'error')
           } else if (msg.status === 'cancelled') {
-            addLog(`Optimization cancelled by user`, 'warning')
+            addLog(networkId, `Optimization cancelled by user`, 'warning')
           }
 
-          if (msg.network_id) {
-            if (msg.status === 'completed') {
-              updateNetworkOptStatus(msg.network_id, 'completed')
-            } else if (msg.status === 'running' || msg.status === 'starting') {
-              updateNetworkOptStatus(msg.network_id, 'running')
-            } else if (msg.status === 'failed') {
-              updateNetworkOptStatus(msg.network_id, 'failed')
-            } else if (msg.status === 'cancelled') {
-              updateNetworkOptStatus(msg.network_id, 'cancelled')
-            }
+          if (msg.status === 'completed') {
+            updateNetworkOptStatus(networkId, 'completed')
+          } else if (msg.status === 'running' || msg.status === 'starting') {
+            updateNetworkOptStatus(networkId, 'running')
+          } else if (msg.status === 'failed') {
+            updateNetworkOptStatus(networkId, 'failed')
+          } else if (msg.status === 'cancelled') {
+            updateNetworkOptStatus(networkId, 'cancelled')
           }
         } else if (msg.type === 'optimization_log') {
           // Solver stdout logs
-          addLog(msg.log, 'info')
+          addLog(networkId, msg.log, 'info')
         }
       } catch (e) {
         console.error('Failed to parse WebSocket message:', e)

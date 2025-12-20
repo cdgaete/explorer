@@ -12,13 +12,24 @@ export function BottomPanel() {
   const { optimization, selectedNetworkId, networks, logs } = useNetworkStore()
   const logsEndRef = useRef<HTMLDivElement>(null)
 
-  const isOptimizing = optimization.status === 'running' || optimization.status === 'starting'
   const selectedNetwork = networks.find((n) => n.id === selectedNetworkId)
+
+  // Check if optimization is for the selected network
+  const isOptimizingThisNetwork = optimization.networkId === selectedNetworkId &&
+    (optimization.status === 'running' || optimization.status === 'starting')
+
+  // Get effective status: use optimization state if it's for this network, otherwise use network's optStatus
+  const effectiveStatus = optimization.networkId === selectedNetworkId
+    ? optimization.status
+    : (selectedNetwork?.optStatus === 'running' ? 'running' : selectedNetwork?.optStatus || 'idle')
+
+  // Filter logs for selected network
+  const networkLogs = logs.filter((log) => log.networkId === selectedNetworkId)
 
   // Auto-scroll logs to bottom
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs])
+  }, [networkLogs])
 
   const handleRunOptimization = async () => {
     if (!selectedNetworkId) return
@@ -64,10 +75,10 @@ export function BottomPanel() {
                 <Button
                   size="lg"
                   className="h-16 w-32"
-                  onClick={isOptimizing ? handleCancelOptimization : handleRunOptimization}
-                  variant={isOptimizing ? "destructive" : "default"}
+                  onClick={isOptimizingThisNetwork ? handleCancelOptimization : handleRunOptimization}
+                  variant={isOptimizingThisNetwork ? "destructive" : "default"}
                 >
-                  {isOptimizing ? (
+                  {isOptimizingThisNetwork ? (
                     <>
                       <Square className="h-5 w-5 mr-2" />
                       Stop
@@ -94,22 +105,22 @@ export function BottomPanel() {
                 <div className="flex items-center gap-3">
                   <span className="text-sm text-muted-foreground">Status:</span>
                   <span className={`text-sm font-medium ${
-                    optimization.status === 'completed' ? 'text-green-500' :
-                    optimization.status === 'failed' ? 'text-destructive' :
-                    optimization.status === 'cancelled' ? 'text-yellow-500' :
-                    optimization.status === 'running' ? 'text-primary' :
+                    effectiveStatus === 'completed' ? 'text-green-500' :
+                    effectiveStatus === 'failed' ? 'text-destructive' :
+                    effectiveStatus === 'cancelled' ? 'text-yellow-500' :
+                    effectiveStatus === 'running' ? 'text-primary' :
                     'text-muted-foreground'
                   }`}>
-                    {optimization.status === 'idle' ? 'Ready' :
-                     optimization.status === 'starting' ? 'Starting...' :
-                     optimization.status === 'running' ? 'Running...' :
-                     optimization.status === 'completed' ? 'Completed' :
-                     optimization.status === 'cancelled' ? 'Cancelled' :
+                    {effectiveStatus === 'idle' ? 'Ready' :
+                     effectiveStatus === 'starting' ? 'Starting...' :
+                     effectiveStatus === 'running' ? 'Running...' :
+                     effectiveStatus === 'completed' ? 'Completed' :
+                     effectiveStatus === 'cancelled' ? 'Cancelled' :
                      'Failed'}
                   </span>
                 </div>
 
-                {isOptimizing && (
+                {isOptimizingThisNetwork && (
                   <div className="space-y-1.5">
                     <Progress value={optimization.progress} className="h-2" />
                     <p className="text-xs text-muted-foreground">
@@ -118,7 +129,7 @@ export function BottomPanel() {
                   </div>
                 )}
 
-                {optimization.status === 'failed' && optimization.error && (
+                {effectiveStatus === 'failed' && optimization.networkId === selectedNetworkId && optimization.error && (
                   <div className="p-2 rounded bg-destructive/10 text-destructive text-xs">
                     {optimization.error}
                   </div>
@@ -130,12 +141,12 @@ export function BottomPanel() {
 
         <TabsContent value="logs" className="flex-1 overflow-auto">
           <div className="p-2 font-mono text-xs space-y-0.5">
-            {logs.length === 0 ? (
+            {networkLogs.length === 0 ? (
               <p className="text-muted-foreground p-2">
                 Run optimization to see logs...
               </p>
             ) : (
-              logs.map((log, i) => (
+              networkLogs.map((log, i) => (
                 <div
                   key={i}
                   className={cn(

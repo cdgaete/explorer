@@ -13,6 +13,7 @@ export interface Network {
 }
 
 export interface OptimizationProgress {
+  networkId: string | null
   status: 'idle' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled'
   progress: number
   message: string
@@ -20,6 +21,7 @@ export interface OptimizationProgress {
 }
 
 export interface LogEntry {
+  networkId: string
   timestamp: Date
   message: string
   level: 'info' | 'warning' | 'error' | 'success'
@@ -36,10 +38,10 @@ interface NetworkState {
   setNetworks: (networks: Network[]) => void
   addNetwork: (network: Network) => void
   selectNetwork: (id: string | null) => void
-  updateOptimization: (progress: OptimizationProgress) => void
+  updateOptimization: (networkId: string, progress: Omit<OptimizationProgress, 'networkId'>) => void
   updateNetworkOptStatus: (id: string, status: Network['optStatus']) => void
-  addLog: (message: string, level?: LogEntry['level']) => void
-  clearLogs: () => void
+  addLog: (networkId: string, message: string, level?: LogEntry['level']) => void
+  clearLogs: (networkId: string) => void
   setWsConnected: (connected: boolean) => void
 }
 
@@ -49,6 +51,7 @@ export const useNetworkStore = create<NetworkState>()(
       networks: [],
       selectedNetworkId: null,
       optimization: {
+        networkId: null,
         status: 'idle',
         progress: 0,
         message: '',
@@ -65,7 +68,8 @@ export const useNetworkStore = create<NetworkState>()(
 
       selectNetwork: (id) => set({ selectedNetworkId: id }),
 
-      updateOptimization: (progress) => set({ optimization: progress }),
+      updateOptimization: (networkId, progress) =>
+        set({ optimization: { ...progress, networkId } }),
 
       updateNetworkOptStatus: (id, status) =>
         set((state) => ({
@@ -74,12 +78,15 @@ export const useNetworkStore = create<NetworkState>()(
           ),
         })),
 
-      addLog: (message, level = 'info') =>
+      addLog: (networkId, message, level = 'info') =>
         set((state) => ({
-          logs: [...state.logs, { timestamp: new Date(), message, level }],
+          logs: [...state.logs, { networkId, timestamp: new Date(), message, level }],
         })),
 
-      clearLogs: () => set({ logs: [] }),
+      clearLogs: (networkId) =>
+        set((state) => ({
+          logs: state.logs.filter((log) => log.networkId !== networkId),
+        })),
 
       setWsConnected: (connected) => set({ wsConnected: connected }),
     }),
