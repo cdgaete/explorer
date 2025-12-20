@@ -55,18 +55,33 @@ function setupBackend() {
 
 // Kill processes by port
 function killByPort(port) {
-  try {
-    // Try fuser first
-    execSync(`fuser -k ${port}/tcp 2>/dev/null`, { stdio: 'pipe' });
-  } catch (e) {}
-  try {
-    // Fallback to lsof + kill
-    const result = execSync(`lsof -ti:${port} 2>/dev/null`, { encoding: 'utf8' });
-    const pids = result.trim().split('\n').filter(p => p);
-    pids.forEach(pid => {
-      try { process.kill(parseInt(pid), 'SIGKILL'); } catch (e) {}
-    });
-  } catch (e) {}
+  const isWin = process.platform === 'win32';
+  
+  if (isWin) {
+    try {
+      // Windows: use netstat + taskkill
+      const result = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf8' });
+      const lines = result.trim().split('\n');
+      lines.forEach(line => {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && !isNaN(parseInt(pid))) {
+          try { execSync(`taskkill /F /PID ${pid}`, { stdio: 'pipe' }); } catch (e) {}
+        }
+      });
+    } catch (e) {}
+  } else {
+    try {
+      execSync(`fuser -k ${port}/tcp 2>/dev/null`, { stdio: 'pipe' });
+    } catch (e) {}
+    try {
+      const result = execSync(`lsof -ti:${port} 2>/dev/null`, { encoding: 'utf8' });
+      const pids = result.trim().split('\n').filter(p => p);
+      pids.forEach(pid => {
+        try { process.kill(parseInt(pid), 'SIGKILL'); } catch (e) {}
+      });
+    } catch (e) {}
+  }
 }
 
 // Cleanup all server processes
@@ -92,7 +107,11 @@ function cleanup() {
 
 function startPythonBackend() {
   const backendPath = setupBackend();
-  const pixiPath = path.join(process.env.HOME, '.pixi', 'bin', 'pixi');
+  const isWin = process.platform === 'win32';
+  const homeDir = process.env.HOME || process.env.USERPROFILE;
+  const pixiPath = isWin 
+    ? path.join(homeDir, '.pixi', 'bin', 'pixi.exe')
+    : path.join(homeDir, '.pixi', 'bin', 'pixi');
   
   console.log('[Electron] Starting FastAPI backend from:', backendPath);
   
@@ -102,7 +121,10 @@ function startPythonBackend() {
   }
   
   if (!fs.existsSync(pixiPath)) {
-    console.error('[Electron] Pixi not found. Please install: curl -fsSL https://pixi.sh/install.sh | bash');
+    const installCmd = isWin 
+      ? 'powershell -c "iwr -useb https://pixi.sh/install.ps1 | iex"'
+      : 'curl -fsSL https://pixi.sh/install.sh | bash';
+    console.error(`[Electron] Pixi not found. Please install: ${installCmd}`);
     return;
   }
   
@@ -127,7 +149,8 @@ function startPythonBackend() {
 
 function startLLMServer() {
   const llmPath = getResourcePath('llm-server');
-  const startScript = path.join(llmPath, 'scripts', 'start.sh');
+  const isWin = process.platform === 'win32';
+  const startScript = path.join(llmPath, 'scripts', isWin ? 'start.bat' : 'start.sh');
   
   console.log('[Electron] Starting LLM server from:', llmPath);
   
@@ -136,12 +159,21 @@ function startLLMServer() {
     return;
   }
   
-  llmProcess = spawn('bash', [startScript], {
-    cwd: llmPath,
-    detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env }
-  });
+  if (isWin) {
+    llmProcess = spawn('cmd.exe', ['/c', startScript], {
+      cwd: llmPath,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env }
+    });
+  } else {
+    llmProcess = spawn('bash', [startScript], {
+      cwd: llmPath,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env }
+    });
+  }
 
   llmProcess.stdout.on('data', (data) => console.log(`[LLM] ${data}`));
   llmProcess.stderr.on('data', (data) => console.log(`[LLM] ${data}`));
