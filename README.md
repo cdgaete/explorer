@@ -1,8 +1,6 @@
-# Energy Network Explorer
+# GridAssistant
 
 A desktop application for analyzing PyPSA energy networks with an AI assistant.
-
-![Energy Network Explorer](app/frontend/public/icon.svg)
 
 ## Features
 
@@ -65,7 +63,7 @@ npm install
 npm run dist:linux
 ```
 
-Output: `release/Energy Network Explorer-0.1.0.AppImage`
+Output: `release/GridAssistant-0.1.0.AppImage`
 
 ### Windows (NSIS Installer)
 
@@ -76,7 +74,7 @@ npm install
 npm run dist:win
 ```
 
-Output: `release/Energy Network Explorer Setup 0.1.0.exe`
+Output: `release/GridAssistant Setup 0.1.0.exe`
 
 ### macOS (DMG)
 
@@ -87,13 +85,13 @@ npm install
 npm run dist:mac
 ```
 
-Output: `release/Energy Network Explorer-0.1.0.dmg`
+Output: `release/GridAssistant-0.1.0.dmg`
 
 ## Architecture
 
 ```
 app/
-├── frontend/     # Electron + React + Vite
+├── frontend/           # Electron + React + Vite
 │   ├── src/            # React components
 │   ├── electron/       # Electron main process
 │   └── release/        # Built packages

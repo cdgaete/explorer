@@ -15,7 +15,7 @@ export function Header() {
     <header className="flex items-center h-12 px-4 bg-card border-b border-border gap-4">
       <div className="flex items-center gap-2">
         <Zap className="h-5 w-5 text-primary" />
-        <h1 className="text-sm font-semibold">Energy Network Explorer</h1>
+        <h1 className="text-sm font-semibold">GridAssistant</h1>
       </div>
 
       <div className="flex items-center gap-1 ml-auto">
