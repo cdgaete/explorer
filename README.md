@@ -2,7 +2,7 @@
 
 A desktop application for analyzing PyPSA energy networks with an AI assistant.
 
-![Energy Network Explorer](app/frontend-react/public/icon.svg)
+![Energy Network Explorer](app/frontend/public/icon.svg)
 
 ## Features
 
@@ -41,7 +41,7 @@ pixi install
 pixi run serve
 
 # Terminal 3: Start frontend
-cd app/frontend-react
+cd app/frontend
 npm install
 npm run dev
 ```
@@ -51,7 +51,7 @@ Open http://localhost:5173
 ### Run as Desktop App (Development)
 
 ```bash
-cd app/frontend-react
+cd app/frontend
 npm start
 ```
 
@@ -60,7 +60,7 @@ npm start
 ### Linux (AppImage)
 
 ```bash
-cd app/frontend-react
+cd app/frontend
 npm install
 npm run dist:linux
 ```
@@ -71,7 +71,7 @@ Output: `release/Energy Network Explorer-0.1.0.AppImage`
 
 Build on Windows:
 ```cmd
-cd app\frontend-react
+cd app\frontend
 npm install
 npm run dist:win
 ```
@@ -82,7 +82,7 @@ Output: `release/Energy Network Explorer Setup 0.1.0.exe`
 
 Build on macOS:
 ```bash
-cd app/frontend-react
+cd app/frontend
 npm install
 npm run dist:mac
 ```
@@ -93,7 +93,7 @@ Output: `release/Energy Network Explorer-0.1.0.dmg`
 
 ```
 app/
-├── frontend-react/     # Electron + React + Vite
+├── frontend/     # Electron + React + Vite
 │   ├── src/            # React components
 │   ├── electron/       # Electron main process
 │   └── release/        # Built packages
