@@ -20,6 +20,8 @@ import threading
 import queue
 import logging
 import psutil
+import multiprocessing
+from multiprocessing import Process, Queue as MPQueue
 
 # Store loaded networks in memory
 networks: dict[str, pypsa.Network] = {}
@@ -30,11 +32,8 @@ active_connections: list[WebSocket] = []
 # Store optimization status
 optimization_status: dict[str, dict] = {}
 
-# Store running optimization tasks for cancellation
-optimization_tasks: dict[str, asyncio.Task] = {}
-
-# Store cancellation flags for each network
-optimization_cancel_flags: dict[str, threading.Event] = {}
+# Store running optimization processes for cancellation
+optimization_processes: dict[str, Process] = {}
 
 # Queue for log messages from optimization
 log_queue: queue.Queue = queue.Queue()
@@ -91,6 +90,60 @@ def clean_for_json(df):
             if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
                 record[key] = None
     return records
+
+
+def run_optimization_worker(network_path: str, network_id: str, solver: str, result_queue: MPQueue, log_queue: MPQueue):
+    """Worker function that runs in a separate process for optimization."""
+    try:
+        # Load the network in this process
+        n = pypsa.Network(network_path)
+
+        # Set up logging to capture solver output
+        log_handler = logging.Handler()
+        log_handler.emit = lambda record: log_queue.put({
+            "network_id": network_id,
+            "log": record.getMessage()
+        })
+        log_handler.setLevel(logging.INFO)
+
+        for logger_name in ['pypsa', 'linopy']:
+            logger = logging.getLogger(logger_name)
+            logger.setLevel(logging.INFO)
+            logger.addHandler(log_handler)
+
+        # Capture stdout for HiGHS output
+        class StdoutCapture:
+            def __init__(self):
+                self.original = sys.stdout
+            def write(self, text):
+                self.original.write(text)
+                for line in text.split('\n'):
+                    if line.strip():
+                        log_queue.put({"network_id": network_id, "log": line})
+            def flush(self):
+                self.original.flush()
+
+        old_stdout = sys.stdout
+        sys.stdout = StdoutCapture()
+
+        try:
+            status, termination = n.optimize(solver_name=solver)
+            objective = float(n.objective) if hasattr(n, 'objective') and n.objective is not None else None
+
+            result_queue.put({
+                "success": True,
+                "status": status,
+                "termination": termination,
+                "objective": objective,
+            })
+        finally:
+            sys.stdout = old_stdout
+
+    except Exception as e:
+        result_queue.put({
+            "success": False,
+            "error": str(e),
+        })
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -318,22 +371,14 @@ class OptimizeRequest(BaseModel):
 
 @app.post("/networks/{network_id}/optimize")
 async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeRequest()):
-    """Run optimization on a network."""
+    """Run optimization on a network using a separate process (cancellable)."""
     if network_id not in networks:
         raise HTTPException(404, f"Network '{network_id}' not found")
-    
+
     if network_id in optimization_status and optimization_status[network_id].get("running"):
         raise HTTPException(400, f"Optimization already running for '{network_id}'")
-    
+
     n = networks[network_id]
-
-    # Create cancel flag for this optimization
-    cancel_flag = threading.Event()
-    optimization_cancel_flags[network_id] = cancel_flag
-
-    # Get current process to track child processes
-    current_process = psutil.Process()
-    initial_children = set(p.pid for p in current_process.children(recursive=True))
 
     # Initialize status
     optimization_status[network_id] = {
@@ -350,94 +395,41 @@ async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeR
         "progress": 0,
     })
 
+    # Save network to temp file for the worker process
+    temp_dir = tempfile.mkdtemp()
+    network_path = os.path.join(temp_dir, f"{network_id}.nc")
+
     try:
         await broadcast({
             "type": "optimization_status",
             "network_id": network_id,
             "status": "running",
-            "progress": 10,
-            "message": "Building optimization model...",
+            "progress": 5,
+            "message": "Preparing network for optimization...",
         })
 
-        loop = asyncio.get_event_loop()
+        # Export network to temp file
+        n.export_to_netcdf(network_path)
 
-        def run_optimize():
-            # Set up logging handler to capture solver logs
-            log_handler = QueueLoggingHandler(log_queue, network_id)
-            log_handler.setFormatter(logging.Formatter('%(name)s: %(message)s'))
-            log_handler.setLevel(logging.INFO)
+        await broadcast({
+            "type": "optimization_status",
+            "network_id": network_id,
+            "status": "running",
+            "progress": 10,
+            "message": "Starting optimization process...",
+        })
 
-            # Only add handler to top-level loggers to prevent duplicates
-            loggers_to_capture = ['pypsa', 'linopy']
-            original_states = {}
-            for logger_name in loggers_to_capture:
-                logger = logging.getLogger(logger_name)
-                original_states[logger_name] = {
-                    'level': logger.level,
-                    'propagate': logger.propagate,
-                }
-                logger.setLevel(logging.INFO)
-                logger.propagate = False  # Prevent duplicate propagation
-                logger.addHandler(log_handler)
+        # Create queues for inter-process communication
+        result_queue = MPQueue()
+        mp_log_queue = MPQueue()
 
-            # Capture C-level stdout/stderr for HiGHS solver output
-            # Save original file descriptors
-            stdout_fd = sys.stdout.fileno()
-            stderr_fd = sys.stderr.fileno()
-            saved_stdout_fd = os.dup(stdout_fd)
-            saved_stderr_fd = os.dup(stderr_fd)
-
-            # Create pipes to capture output
-            stdout_read_fd, stdout_write_fd = os.pipe()
-            stderr_read_fd, stderr_write_fd = os.pipe()
-
-            # Redirect stdout/stderr to write end of pipes
-            os.dup2(stdout_write_fd, stdout_fd)
-            os.dup2(stderr_write_fd, stderr_fd)
-
-            # Thread to read from pipes and put into queue
-            def pipe_reader(read_fd, name):
-                with os.fdopen(read_fd, 'r', buffering=1) as f:
-                    for line in f:
-                        line = line.rstrip('\n')
-                        if line:
-                            log_queue.put({"network_id": network_id, "log": line})
-
-            stdout_thread = threading.Thread(target=pipe_reader, args=(stdout_read_fd, 'stdout'))
-            stderr_thread = threading.Thread(target=pipe_reader, args=(stderr_read_fd, 'stderr'))
-            stdout_thread.daemon = True
-            stderr_thread.daemon = True
-            stdout_thread.start()
-            stderr_thread.start()
-
-            try:
-                result = n.optimize(solver_name=request.solver)
-                return result
-            finally:
-                # Flush Python buffers
-                sys.stdout.flush()
-                sys.stderr.flush()
-
-                # Close write ends to signal EOF to reader threads
-                os.close(stdout_write_fd)
-                os.close(stderr_write_fd)
-
-                # Restore original file descriptors
-                os.dup2(saved_stdout_fd, stdout_fd)
-                os.dup2(saved_stderr_fd, stderr_fd)
-                os.close(saved_stdout_fd)
-                os.close(saved_stderr_fd)
-
-                # Wait for reader threads to finish
-                stdout_thread.join(timeout=1.0)
-                stderr_thread.join(timeout=1.0)
-
-                # Remove logging handlers
-                for logger_name in loggers_to_capture:
-                    logger = logging.getLogger(logger_name)
-                    logger.removeHandler(log_handler)
-                    logger.setLevel(original_states[logger_name]['level'])
-                    logger.propagate = original_states[logger_name]['propagate']
+        # Start optimization in separate process
+        proc = Process(
+            target=run_optimization_worker,
+            args=(network_path, network_id, request.solver, result_queue, mp_log_queue)
+        )
+        proc.start()
+        optimization_processes[network_id] = proc
 
         await broadcast({
             "type": "optimization_status",
@@ -447,75 +439,110 @@ async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeR
             "message": "Solving optimization problem...",
         })
 
-        # Start a task to process log messages
-        async def process_logs():
+        # Monitor process and collect logs
+        while proc.is_alive():
+            # Process log messages
             while True:
                 try:
-                    msg = log_queue.get_nowait()
-                    if msg["network_id"] == network_id:
+                    msg = mp_log_queue.get_nowait()
+                    if msg.get("network_id") == network_id:
                         await broadcast({
                             "type": "optimization_log",
-                            "network_id": msg["network_id"],
-                            "log": msg["log"],
+                            "network_id": network_id,
+                            "log": msg.get("log", ""),
                         })
-                except queue.Empty:
-                    await asyncio.sleep(0.1)
-                except Exception:
+                except:
                     break
 
-        log_task = asyncio.create_task(process_logs())
+            # Check if cancelled
+            if network_id not in optimization_processes:
+                # Was cancelled
+                return {"status": "cancelled"}
 
-        try:
-            status, termination = await loop.run_in_executor(None, run_optimize)
-        finally:
-            # Give logs a moment to flush, then cancel
-            await asyncio.sleep(0.3)
-            log_task.cancel()
+            await asyncio.sleep(0.1)
+
+        # Process remaining logs
+        while True:
             try:
-                await log_task
-            except asyncio.CancelledError:
-                pass
-        
-        await broadcast({
-            "type": "optimization_status",
-            "network_id": network_id,
-            "status": "running", 
-            "progress": 90,
-            "message": "Extracting results...",
-        })
-        
-        objective_obj = n.objective if hasattr(n, 'objective') else None
-        objective = float(objective_obj) if objective_obj is not None else None
-        
-        optimization_status[network_id] = {
-            "running": False,
-            "progress": 100,
-            "status": "completed",
-            "termination": termination,
-            "objective": objective,
-            "completed_at": datetime.now().isoformat(),
-        }
-        
-        await broadcast({
-            "type": "optimization_status",
-            "network_id": network_id,
-            "status": "completed",
-            "progress": 100,
-            "termination": termination,
-            "objective": objective,
-        })
-        
-        return {
-            "status": "completed",
-            "termination": termination,
-            "objective": objective,
-        }
-        
-    except asyncio.CancelledError:
-        # Optimization was cancelled - status already updated by cancel endpoint
-        # Clean up cancel flag
-        optimization_cancel_flags.pop(network_id, None)
-        return {"status": "cancelled"}
+                msg = mp_log_queue.get_nowait()
+                if msg.get("network_id") == network_id:
+                    await broadcast({
+                        "type": "optimization_log",
+                        "network_id": network_id,
+                        "log": msg.get("log", ""),
+                    })
+            except:
+                break
+
+        # Get result
+        try:
+            result = result_queue.get_nowait()
+        except:
+            result = {"success": False, "error": "No result from optimization process"}
+
+        # Clean up process reference
+        optimization_processes.pop(network_id, None)
+
+        if result.get("success"):
+            status = result.get("status")
+            termination = result.get("termination")
+            objective = result.get("objective")
+
+            # Reload the optimized network to get results
+            n_optimized = pypsa.Network(network_path)
+            networks[network_id] = n_optimized
+
+            await broadcast({
+                "type": "optimization_status",
+                "network_id": network_id,
+                "status": "running",
+                "progress": 90,
+                "message": "Extracting results...",
+            })
+
+            optimization_status[network_id] = {
+                "running": False,
+                "progress": 100,
+                "status": "completed",
+                "termination": termination,
+                "objective": objective,
+                "completed_at": datetime.now().isoformat(),
+            }
+
+            await broadcast({
+                "type": "optimization_status",
+                "network_id": network_id,
+                "status": "completed",
+                "progress": 100,
+                "termination": termination,
+                "objective": objective,
+            })
+
+            return {
+                "status": "completed",
+                "termination": termination,
+                "objective": objective,
+            }
+        else:
+            error = result.get("error", "Unknown error")
+            optimization_status[network_id] = {
+                "running": False,
+                "progress": 0,
+                "status": "failed",
+                "error": error,
+            }
+
+            await broadcast({
+                "type": "optimization_status",
+                "network_id": network_id,
+                "status": "failed",
+                "error": error,
+            })
+
+            raise HTTPException(500, f"Optimization failed: {error}")
+
+    except HTTPException:
+        raise
 
     except Exception as e:
         optimization_status[network_id] = {
@@ -535,8 +562,12 @@ async def optimize_network(network_id: str, request: OptimizeRequest = OptimizeR
         raise HTTPException(500, f"Optimization failed: {str(e)}")
 
     finally:
-        # Clean up cancel flag
-        optimization_cancel_flags.pop(network_id, None)
+        # Clean up temp directory
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
+        optimization_processes.pop(network_id, None)
 
 @app.get("/networks/{network_id}/optimization-status")
 def get_optimization_status(network_id: str):
@@ -547,7 +578,7 @@ def get_optimization_status(network_id: str):
 
 @app.post("/networks/{network_id}/cancel-optimization")
 async def cancel_optimization(network_id: str):
-    """Cancel a running optimization."""
+    """Cancel a running optimization by terminating the worker process."""
     if network_id not in networks:
         raise HTTPException(404, f"Network '{network_id}' not found")
 
@@ -555,31 +586,14 @@ async def cancel_optimization(network_id: str):
     if not status.get("running"):
         raise HTTPException(400, "No optimization is running for this network")
 
-    # Set the cancel flag
-    cancel_flag = optimization_cancel_flags.get(network_id)
-    if cancel_flag:
-        cancel_flag.set()
-
-    # Kill solver child processes
-    killed_pids = []
-    try:
-        current_process = psutil.Process()
-        for child in current_process.children(recursive=True):
-            try:
-                # Kill processes that look like solvers (highs, glpk, cbc, etc.)
-                cmdline = " ".join(child.cmdline()).lower()
-                if any(solver in cmdline for solver in ["highs", "glpk", "cbc", "cplex", "gurobi", "scip"]):
-                    child.kill()
-                    killed_pids.append(child.pid)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-    except Exception as e:
-        logging.warning(f"Error killing solver processes: {e}")
-
-    # Cancel the asyncio task if it exists
-    task = optimization_tasks.get(network_id)
-    if task and not task.done():
-        task.cancel()
+    # Get and terminate the optimization process
+    proc = optimization_processes.pop(network_id, None)
+    if proc and proc.is_alive():
+        proc.terminate()
+        proc.join(timeout=2.0)  # Wait up to 2 seconds
+        if proc.is_alive():
+            proc.kill()  # Force kill if still alive
+            proc.join(timeout=1.0)
 
     # Update status
     optimization_status[network_id] = {
@@ -587,7 +601,6 @@ async def cancel_optimization(network_id: str):
         "progress": 0,
         "status": "cancelled",
         "cancelled_at": datetime.now().isoformat(),
-        "killed_pids": killed_pids,
     }
 
     await broadcast({
@@ -597,7 +610,7 @@ async def cancel_optimization(network_id: str):
         "progress": 0,
     })
 
-    return {"status": "cancelled", "killed_pids": killed_pids}
+    return {"status": "cancelled"}
 
 @app.get("/networks/{network_id}/results")
 def get_results(network_id: str):
