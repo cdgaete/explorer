@@ -23,6 +23,9 @@ import psutil
 import multiprocessing
 from multiprocessing import Process, Queue as MPQueue
 
+# AI Chat
+from ai_chat import get_or_create_session, clear_session
+
 # Store loaded networks in memory
 networks: dict[str, pypsa.Network] = {}
 
@@ -1118,3 +1121,99 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         if websocket in active_connections:
             active_connections.remove(websocket)
+
+
+@app.websocket("/ws/chat")
+async def chat_websocket(websocket: WebSocket):
+    """WebSocket for AI chat with tool calling."""
+    await websocket.accept()
+    
+    # Generate session ID from connection
+    session_id = str(id(websocket))
+    session = get_or_create_session(session_id, backend_url="http://localhost:8000")
+    
+    try:
+        # Send welcome message
+        await websocket.send_json({
+            "type": "assistant",
+            "content": "Hello! I'm your AI assistant for the Energy Network Explorer. I can help you analyze PyPSA networks, run optimizations, and explain results. What would you like to do?",
+            "needs_approval": False
+        })
+        
+        while True:
+            # Receive user message
+            data = await websocket.receive_json()
+            
+            if data.get("type") == "message":
+                user_message = data.get("content", "")
+                
+                # Send typing indicator
+                await websocket.send_json({"type": "typing", "typing": True})
+                
+                try:
+                    # Process message through AI
+                    result = await session.chat(user_message)
+                    
+                    # Check if a tool was executed that affects networks
+                    tool_executed = result.get("tool_executed")
+                    if tool_executed:
+                        tool_name = tool_executed.get("name")
+                        # Send tool execution notification
+                        await websocket.send_json({
+                            "type": "tool_executed",
+                            "tool_name": tool_name,
+                            "arguments": tool_executed.get("arguments", {})
+                        })
+                        
+                        # If network-affecting tool, notify to refresh
+                        if tool_name in ["load_example_network", "run_optimization"]:
+                            await websocket.send_json({
+                                "type": "refresh_networks"
+                            })
+                    
+                    # Send response
+                    await websocket.send_json({
+                        "type": "assistant",
+                        "content": result["response"],
+                        "needs_approval": result["needs_approval"],
+                        "pending_tool": result.get("pending_tool")
+                    })
+                    
+                except Exception as e:
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": f"Error: {str(e)}"
+                    })
+                
+                finally:
+                    await websocket.send_json({"type": "typing", "typing": False})
+            
+            elif data.get("type") == "clear":
+                # Clear session history
+                clear_session(session_id)
+                session = get_or_create_session(session_id, backend_url="http://localhost:8000")
+                await websocket.send_json({
+                    "type": "cleared",
+                    "content": "Chat history cleared."
+                })
+    
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"Chat WebSocket error: {e}")
+    finally:
+        clear_session(session_id)
+
+
+@app.get("/chat/health")
+async def chat_health():
+    """Check if AI chat (LLM server) is available."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get("http://localhost:8080/health")
+            if resp.status_code == 200:
+                return {"status": "ok", "llm_server": "connected"}
+    except:
+        pass
+    return {"status": "unavailable", "llm_server": "not connected"}

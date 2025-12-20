@@ -1,9 +1,10 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { Network as NetworkIcon, FolderOpen, Sparkles, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useNetworkStore, type Network } from '@/stores/networkStore'
 import { api, type NetworkListResponse } from '@/api/client'
+import { REFRESH_NETWORKS_EVENT } from '@/hooks/useChatWebSocket'
 
 interface NetworkCardProps {
   network: Network
@@ -82,47 +83,58 @@ export function Sidebar() {
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const fetchNetworks = useCallback(async () => {
+    try {
+      const data = await api.get<NetworkListResponse>('/networks')
+
+      // Get optimization status for each network
+      const networksWithStatus = await Promise.all(
+        data.networks.map(async (n) => {
+          try {
+            const status = await api.get<{ status: string }>(`/networks/${n.id}/optimization-status`)
+            return {
+              ...n,
+              loads: n.loads ?? 0,
+              links: n.links ?? 0,
+              optStatus: (status.status as Network['optStatus']) || 'idle',
+            }
+          } catch {
+            return { ...n, loads: n.loads ?? 0, links: n.links ?? 0, optStatus: 'idle' as const }
+          }
+        })
+      )
+
+      setNetworks(networksWithStatus)
+      
+      // Auto-select first network if none selected
+      if (networksWithStatus.length > 0 && !selectedNetworkId) {
+        selectNetwork(networksWithStatus[0].id)
+      }
+    } catch (e) {
+      console.error('Failed to fetch networks:', e)
+    }
+  }, [setNetworks, selectNetwork, selectedNetworkId])
+
+  // Listen for refresh events from chat
+  useEffect(() => {
+    const handleRefresh = () => {
+      console.log('Received refresh_networks event, fetching...')
+      fetchNetworks()
+    }
+    
+    window.addEventListener(REFRESH_NETWORKS_EVENT, handleRefresh)
+    return () => window.removeEventListener(REFRESH_NETWORKS_EVENT, handleRefresh)
+  }, [fetchNetworks])
+
   useEffect(() => {
     // Only fetch when backend is connected
     if (!wsConnected) return
-
-    const fetchNetworks = async () => {
-      try {
-        const data = await api.get<NetworkListResponse>('/networks')
-
-        // Get optimization status for each network
-        const networksWithStatus = await Promise.all(
-          data.networks.map(async (n) => {
-            try {
-              const status = await api.get<{ status: string }>(`/networks/${n.id}/optimization-status`)
-              return {
-                ...n,
-                loads: n.loads ?? 0,
-                links: n.links ?? 0,
-                optStatus: (status.status as Network['optStatus']) || 'idle',
-              }
-            } catch {
-              return { ...n, loads: n.loads ?? 0, links: n.links ?? 0, optStatus: 'idle' as const }
-            }
-          })
-        )
-
-        setNetworks(networksWithStatus)
-
-        // Clear selection if selected network no longer exists
-        if (selectedNetworkId && !networksWithStatus.some(n => n.id === selectedNetworkId)) {
-          selectNetwork(null)
-        }
-      } catch (e) {
-        console.error('Failed to fetch networks:', e)
-      }
-    }
 
     fetchNetworks()
     // Refresh every 5 seconds while connected
     const interval = setInterval(fetchNetworks, 5000)
     return () => clearInterval(interval)
-  }, [setNetworks, addNetwork, wsConnected, selectedNetworkId, selectNetwork])
+  }, [wsConnected, fetchNetworks])
 
   const handleLoadExample = async () => {
     try {

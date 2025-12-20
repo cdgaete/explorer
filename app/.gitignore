@@ -5,6 +5,10 @@ node_modules/
 # Build outputs
 dist/
 build/
+release/
+
+# LLM binaries (downloaded at runtime)
+llm-server/bin/
 
 # IDE
 .idea/

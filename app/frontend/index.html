@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Energy Network Explorer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg-primary: #1a1a2e;
+      --bg-secondary: #16213e;
+      --bg-tertiary: #0f3460;
+      --text-primary: #eee;
+      --text-muted: #888;
+      --accent: #e94560;
+      --success: #00ff88;
+      --border: #2a2a4a;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      padding: 8px 16px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      gap: 16px;
+    }
+    .header h1 { font-size: 16px; font-weight: 600; }
+    .header-actions { display: flex; gap: 8px; margin-left: auto; }
+    /* Buttons */
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      transition: background 0.2s;
+    }
+    button:hover { background: var(--accent); }
+    button.primary { background: var(--accent); }
+    button.primary:hover { background: #d63850; }
+    
+    /* Main Layout */
+    .main-container {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+    
+    /* Sidebar */
+    .sidebar {
+      width: 280px;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+    /* Network List */
+    .network-item {
+      padding: 12px;
+      background: var(--bg-tertiary);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .network-item:hover { background: var(--border); }
+    .network-item.selected { border-left: 3px solid var(--accent); }
+    .network-preview {
+      width: 70px;
+      height: 50px;
+      background: var(--bg-secondary);
+      border-radius: 4px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .network-preview svg { width: 100%; height: 100%; }
+    .network-info { flex: 1; min-width: 0; }
+    .network-item h3 { font-size: 14px; margin-bottom: 4px; }
+    .network-item .stats { font-size: 12px; color: var(--text-muted); }
+    .opt-status {
+      font-size: 11px;
+      margin-top: 4px;
+      color: var(--text-muted);
+    }
+    .opt-status.completed { color: var(--success); }
+    .opt-status.running { color: var(--accent); }
+    
+    /* Content Area */
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    
+    /* Tabs */
+    .tabs {
+      display: flex;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+    .tab {
+      padding: 12px 20px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      font-size: 13px;
+      color: var(--text-muted);
+      transition: all 0.2s;
+    }
+    .tab:hover { color: var(--text-primary); }
+    .tab.active {
+      color: var(--text-primary);
+      border-bottom-color: var(--accent);
+    }
+    /* Tab Content */
+    .tab-content {
+      flex: 1;
+      overflow: auto;
+      padding: 16px;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      background: var(--bg-secondary);
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+    }
+    tr:hover { background: var(--bg-secondary); }
+    
+    /* Status */
+    .status-bar {
+      padding: 6px 16px;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+    }
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px;
+      color: var(--text-muted);
+    }
+    #map {
+      height: 100%;
+      width: 100%;
+      background: var(--bg-tertiary);
+    }
+    /* Progress bar */
+    .progress-container {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+    }
+    .progress-container.active { display: flex; }
+    .progress-bar {
+      flex: 1;
+      height: 6px;
+      background: var(--bg-tertiary);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.3s;
+    }
+    .progress-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      min-width: 100px;
+    }
+    /* Results */
+    .result-card {
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .result-card h3 {
+      margin-bottom: 12px;
+      color: var(--accent);
+    }
+    .result-value {
+      font-size: 24px;
+      font-weight: bold;
+    }
+    /* Metadata panel */
+    .metadata-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .metadata-card {
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .metadata-card h4 {
+      color: var(--accent);
+      margin-bottom: 12px;
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+    .carrier-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .carrier-item:last-child { border-bottom: none; }
+    .carrier-color {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+    }
+    .dimension-value {
+      font-size: 28px;
+      font-weight: bold;
+      color: var(--accent);
+    }
+    .dimension-label {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    /* Statistics panel */
+    .stats-controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .stats-controls select {
+      padding: 8px 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-size: 14px;
+    }
+    .stats-controls button {
+      padding: 8px 16px;
+    }
+    .stats-result {
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 16px;
+      overflow-x: auto;
+    }
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+  <div class="header">
+    <h1>⚡ Energy Network Explorer</h1>
+    <div class="header-actions">
+      <button onclick="loadExampleNetwork()">Load Example</button>
+      <button onclick="openFileDialog()">Open Network</button>
+      <button onclick="runOptimization()" class="primary" id="optimize-btn" disabled>Run Optimization</button>
+    </div>
+  </div>
+  
+  <div class="main-container">
+    <div class="sidebar">
+      <div class="sidebar-header">Networks</div>
+      <div class="sidebar-content" id="network-list">
+        <div class="empty-state">No networks loaded</div>
+      </div>
+    </div>
+    
+    <div class="content">
+      <div class="tabs">
+        <div class="tab active" data-tab="map">Map</div>
+        <div class="tab" data-tab="metadata">Metadata</div>
+        <div class="tab" data-tab="statistics">Statistics</div>
+        <div class="tab" data-tab="buses">Buses</div>
+        <div class="tab" data-tab="generators">Generators</div>
+        <div class="tab" data-tab="lines">Lines</div>
+        <div class="tab" data-tab="loads">Loads</div>
+        <div class="tab" data-tab="links">Links</div>
+        <div class="tab" data-tab="results">Results</div>
+      </div>
+      
+      <div class="tab-content">
+        <div id="map" class="tab-panel active" style="padding: 0;"></div>
+        <div id="metadata" class="tab-panel"></div>
+        <div id="statistics" class="tab-panel"></div>
+        <div id="buses" class="tab-panel"></div>
+        <div id="generators" class="tab-panel"></div>
+        <div id="lines" class="tab-panel"></div>
+        <div id="loads" class="tab-panel"></div>
+        <div id="links" class="tab-panel"></div>
+        <div id="results" class="tab-panel"></div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="status-bar">
+    <div class="status-indicator">
+      <div class="status-dot"></div>
+      <span id="status-text">Connected to backend</span>
+    </div>
+    <div class="progress-container" id="progress-container">
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+      </div>
+      <span class="progress-text" id="progress-text">0%</span>
+    </div>
+    <span id="network-info">No network selected</span>
+  </div>
+  <script>
+    let selectedNetwork = null;
+    let map = null;
+    let mapLayers = { buses: null, lines: null, links: null };
+    let ws = null;
+    
+    // Initialize WebSocket connection
+    function initWebSocket() {
+      ws = new WebSocket('ws://127.0.0.1:8000/ws');
+      ws.onopen = () => console.log('WebSocket connected');
+      ws.onclose = () => {
+        console.log('WebSocket disconnected, reconnecting...');
+        setTimeout(initWebSocket, 2000);
+      };
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        handleWebSocketMessage(msg);
+      };
+    }
+    
+    function handleWebSocketMessage(msg) {
+      console.log('WS message:', msg);
+      if (msg.type === 'optimization_status') {
+        updateOptimizationProgress(msg);
+      }
+    }
+    
+    function updateOptimizationProgress(msg) {
+      const container = document.getElementById('progress-container');
+      const fill = document.getElementById('progress-fill');
+      const text = document.getElementById('progress-text');
+      const btn = document.getElementById('optimize-btn');
+      
+      if (msg.status === 'starting' || msg.status === 'running') {
+        container.classList.add('active');
+        fill.style.width = msg.progress + '%';
+        text.textContent = msg.message || `${msg.progress}%`;
+        btn.disabled = true;
+        btn.textContent = 'Optimizing...';
+      } else if (msg.status === 'completed') {
+        container.classList.remove('active');
+        fill.style.width = '100%';
+        text.textContent = 'Complete!';
+        btn.disabled = false;
+        btn.textContent = 'Run Optimization';
+        // Refresh network list to show solved status
+        refreshNetworkList();
+        // Load results
+        if (selectedNetwork) loadResults(selectedNetwork);
+      } else if (msg.status === 'failed') {
+        container.classList.remove('active');
+        btn.disabled = false;
+        btn.textContent = 'Run Optimization';
+        alert('Optimization failed: ' + msg.error);
+      }
+    }
+    
+    async function runOptimization() {
+      if (!selectedNetwork) {
+        alert('Please select a network first');
+        return;
+      }
+      try {
+        console.log('Starting optimization for:', selectedNetwork);
+        await window.backendAPI.post(`/networks/${selectedNetwork}/optimize`);
+      } catch (e) {
+        console.error('Optimization request failed:', e);
+      }
+    }
+    
+    async function loadResults(networkId) {
+      try {
+        const data = await window.backendAPI.get(`/networks/${networkId}/results`);
+        const html = `
+          <div class="result-card">
+            <h3>Optimization Results</h3>
+            <p>Objective Value:</p>
+            <div class="result-value">${data.objective ? data.objective.toLocaleString() : 'N/A'}</div>
+          </div>
+          ${data.generators_p_nom_opt && data.generators_p_nom_opt.length > 0 ? `
+            <h3>Generator Capacities (p_nom_opt)</h3>
+            ${renderTable(data.generators_p_nom_opt, ['name', 'bus', 'carrier', 'p_nom', 'p_nom_opt'])}
+          ` : ''}
+          ${data.lines_s_nom_opt && data.lines_s_nom_opt.length > 0 ? `
+            <h3>Line Capacities (s_nom_opt)</h3>
+            ${renderTable(data.lines_s_nom_opt, ['name', 'bus0', 'bus1', 's_nom', 's_nom_opt'])}
+          ` : ''}
+        `;
+        document.getElementById('results').innerHTML = html;
+      } catch (e) {
+        // Expected when network hasn't been optimized yet - don't log as error
+        document.getElementById('results').innerHTML = '<div class="empty-state">No optimization results yet.<br>Click "Run Optimization" to solve the network.</div>';
+      }
+    }
+    
+    // Initialize WebSocket on load
+    initWebSocket();
+    
+    // Initialize map
+    function initMap() {
+      if (map) return;
+      map = L.map('map').setView([50, 10], 4);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+      }).addTo(map);
+    }
+    
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.tab).classList.add('active');
+        // Resize map when switching to map tab
+        if (tab.dataset.tab === 'map' && map) {
+          setTimeout(() => map.invalidateSize(), 100);
+        }
+      });
+    });
+    
+    async function loadExampleNetwork() {
+      try {
+        console.log('Loading example network...');
+        const result = await window.backendAPI.post('/networks/example');
+        console.log('Example loaded:', result);
+        await refreshNetworkList();
+        selectNetwork(result.id);
+      } catch (e) {
+        console.error('Failed to load example:', e);
+        alert('Failed to load example network: ' + e.message);
+      }
+    }
+    
+    async function openFileDialog() {
+      const result = await window.electronAPI.openFileDialog();
+      if (!result.canceled && result.filePaths.length > 0) {
+        const filePath = result.filePaths[0];
+        try {
+          console.log('Loading file:', filePath);
+          const response = await window.backendAPI.loadFile(filePath);
+          console.log('File loaded:', response);
+          await refreshNetworkList();
+          selectNetwork(response.id);
+        } catch (e) {
+          console.error('Failed to load file:', e);
+          alert('Failed to load network file: ' + e.message);
+        }
+      }
+    }
+    
+    async function loadTopologyPreview(networkId) {
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/networks/${networkId}/topology.svg`);
+        if (res.ok) {
+          const svg = await res.text();
+          const el = document.getElementById(`preview-${networkId}`);
+          if (el) el.innerHTML = svg;
+        }
+      } catch (e) {
+        // Ignore - preview is optional
+      }
+    }
+    
+    async function loadMetadata(networkId) {
+      try {
+        const data = await window.backendAPI.get(`/networks/${networkId}/metadata`);
+        
+        const carriersHtml = Object.entries(data.carriers).map(([name, info]) => `
+          <div class="carrier-item">
+            <div class="carrier-color" style="background: ${info.color || '#888'}"></div>
+            <span>${name}</span>
+          </div>
+        `).join('') || '<div class="empty-state">No carriers</div>';
+        
+        const countriesHtml = data.countries.length > 0 
+          ? data.countries.map(c => `<span class="tag">${c}</span>`).join(' ')
+          : '<span class="text-muted">None</span>';
+        
+        document.getElementById('metadata').innerHTML = `
+          <h2>Network: ${data.name}</h2>
+          
+          <div class="metadata-grid">
+            <div class="metadata-card">
+              <h4>Dimensions</h4>
+              <div style="display: flex; gap: 24px;">
+                <div>
+                  <div class="dimension-value">${data.dimensions.snapshots}</div>
+                  <div class="dimension-label">Snapshots</div>
+                </div>
+                <div>
+                  <div class="dimension-value">${data.dimensions.investment_periods}</div>
+                  <div class="dimension-label">Investment Periods</div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="metadata-card">
+              <h4>Components</h4>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                ${Object.entries(data.components).map(([k, v]) => `
+                  <div><strong>${v}</strong> ${k}</div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+          
+          <div class="metadata-grid">
+            <div class="metadata-card">
+              <h4>Carriers</h4>
+              ${carriersHtml}
+            </div>
+            
+            <div class="metadata-card">
+              <h4>Countries</h4>
+              ${countriesHtml}
+            </div>
+          </div>
+        `;
+      } catch (e) {
+        document.getElementById('metadata').innerHTML = '<div class="empty-state">Failed to load metadata</div>';
+      }
+    }
+    
+    async function loadStatisticsPanel(networkId) {
+      try {
+        const available = await window.backendAPI.get(`/networks/${networkId}/statistics/available`);
+        
+        document.getElementById('statistics').innerHTML = `
+          <h2>Statistics Explorer</h2>
+          <div class="stats-controls">
+            <select id="stat-select">
+              ${available.statistics.map(s => `<option value="${s}">${s.replace(/_/g, ' ')}</option>`).join('')}
+            </select>
+            <select id="groupby-select">
+              <option value="carrier">Group by Carrier</option>
+              <option value="bus">Group by Bus</option>
+              <option value="bus_carrier">Group by Bus + Carrier</option>
+            </select>
+            <button onclick="runStatistics()">Calculate</button>
+          </div>
+          <div id="stats-result" class="stats-result">
+            <div class="empty-state">Select a statistic and click Calculate</div>
+          </div>
+        `;
+      } catch (e) {
+        document.getElementById('statistics').innerHTML = '<div class="empty-state">Failed to load statistics options</div>';
+      }
+    }
+    
+    async function runStatistics() {
+      if (!selectedNetwork) return;
+      
+      const statistic = document.getElementById('stat-select').value;
+      const groupby = document.getElementById('groupby-select').value;
+      const resultDiv = document.getElementById('stats-result');
+      
+      resultDiv.innerHTML = '<div class="empty-state">Calculating...</div>';
+      
+      try {
+        const data = await window.backendAPI.post(`/networks/${selectedNetwork}/statistics`, {
+          statistic,
+          groupby
+        });
+        
+        // Format the result as a table
+        if (data.data && typeof data.data === 'object') {
+          const formatted = formatStatisticsData(data.data);
+          resultDiv.innerHTML = formatted;
+        } else {
+          resultDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+        }
+      } catch (e) {
+        resultDiv.innerHTML = `<div class="empty-state">Error: ${e.message}</div>`;
+      }
+    }
+    
+    function formatStatisticsData(data) {
+      // Handle different pandas to_dict formats
+      if (data.index !== undefined && data.columns !== undefined && data.data !== undefined) {
+        // DataFrame split format
+        let html = '<table class="data-table"><thead><tr><th></th>';
+        html += data.columns.map(c => `<th>${c}</th>`).join('');
+        html += '</tr></thead><tbody>';
+        data.data.forEach((row, i) => {
+          html += `<tr><td><strong>${data.index[i]}</strong></td>`;
+          html += row.map(v => `<td>${typeof v === 'number' ? v.toLocaleString(undefined, {maximumFractionDigits: 2}) : v}</td>`).join('');
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        return html;
+      } else {
+        // Series or simple dict format
+        let html = '<table class="data-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>';
+        Object.entries(data).forEach(([k, v]) => {
+          const formatted = typeof v === 'number' ? v.toLocaleString(undefined, {maximumFractionDigits: 2}) : v;
+          html += `<tr><td><strong>${k}</strong></td><td>${formatted}</td></tr>`;
+        });
+        html += '</tbody></table>';
+        return html;
+      }
+    }
+
+    async function refreshNetworkList() {
+      try {
+        console.log('Refreshing network list...');
+        const data = await window.backendAPI.get('/networks');
+        console.log('Networks:', data);
+        const list = document.getElementById('network-list');
+        
+        if (data.networks.length === 0) {
+          list.innerHTML = '<div class="empty-state">No networks loaded</div>';
+          return;
+        }
+        
+        // Get optimization status for each network
+        const networksWithStatus = await Promise.all(
+          data.networks.map(async (n) => {
+            try {
+              const status = await window.backendAPI.get(`/networks/${n.id}/optimization-status`);
+              return { ...n, optStatus: status.status || 'idle' };
+            } catch {
+              return { ...n, optStatus: 'idle' };
+            }
+          })
+        );
+        
+        list.innerHTML = networksWithStatus.map(n => `
+          <div class="network-item ${selectedNetwork === n.id ? 'selected' : ''}" onclick="selectNetwork('${n.id}')">
+            <div class="network-preview" id="preview-${n.id}"></div>
+            <div class="network-info">
+              <h3>${n.name}</h3>
+              <div class="stats">
+                ${n.buses} buses · ${n.generators} gen · ${n.lines} lines
+              </div>
+              <div class="opt-status ${n.optStatus}">${n.optStatus === 'completed' ? 'solved' : n.optStatus === 'running' ? 'solving...' : 'unsolved'}</div>
+            </div>
+          </div>
+        `).join('');
+        
+        // Load SVG previews
+        networksWithStatus.forEach(n => {
+          loadTopologyPreview(n.id);
+        });
+      } catch (e) {
+        console.error('Failed to refresh network list:', e);
+      }
+    }
+    
+    async function selectNetwork(networkId) {
+      selectedNetwork = networkId;
+      document.getElementById('optimize-btn').disabled = false;
+      await refreshNetworkList();
+      document.getElementById('network-info').textContent = `Network: ${networkId}`;
+      
+      // Load all component data
+      await Promise.all([
+        loadMap(networkId),
+        loadMetadata(networkId),
+        loadStatisticsPanel(networkId),
+        loadBuses(networkId),
+        loadGenerators(networkId),
+        loadLines(networkId),
+        loadLoads(networkId),
+        loadLinks(networkId),
+      ]);
+      
+      // Check optimization status and only load results if optimized
+      const status = await window.backendAPI.get(`/networks/${networkId}/optimization-status`);
+      if (status.status === 'completed') {
+        loadResults(networkId);
+      } else {
+        document.getElementById('results').innerHTML = '<div class="empty-state">No optimization results yet.<br>Click "Run Optimization" to solve the network.</div>';
+      }
+    }
+    
+    async function loadMap(networkId) {
+      initMap();
+      
+      // Clear existing layers
+      Object.values(mapLayers).forEach(layer => {
+        if (layer) map.removeLayer(layer);
+      });
+      
+      try {
+        const [busData, lineData, linkData] = await Promise.all([
+          window.backendAPI.get(`/networks/${networkId}/buses`),
+          window.backendAPI.get(`/networks/${networkId}/lines`),
+          window.backendAPI.get(`/networks/${networkId}/links`),
+        ]);
+        
+        const buses = busData.buses;
+        const busMap = {};
+        buses.forEach(b => { busMap[b.name] = b; });
+        
+        // Draw lines
+        const lineCoords = lineData.lines
+          .filter(l => busMap[l.bus0] && busMap[l.bus1])
+          .map(l => [[busMap[l.bus0].y, busMap[l.bus0].x], [busMap[l.bus1].y, busMap[l.bus1].x]]);
+        if (lineCoords.length > 0) {
+          mapLayers.lines = L.polyline(lineCoords, { color: '#4a9eff', weight: 2 }).addTo(map);
+        }
+        
+        // Draw links (DC lines)
+        const linkCoords = linkData.links
+          .filter(l => busMap[l.bus0] && busMap[l.bus1])
+          .map(l => [[busMap[l.bus0].y, busMap[l.bus0].x], [busMap[l.bus1].y, busMap[l.bus1].x]]);
+        if (linkCoords.length > 0) {
+          mapLayers.links = L.polyline(linkCoords, { color: '#e94560', weight: 2, dashArray: '5,5' }).addTo(map);
+        }
+        
+        // Draw buses
+        const busMarkers = buses
+          .filter(b => b.x !== 0 || b.y !== 0)
+          .map(b => L.circleMarker([b.y, b.x], {
+            radius: 8,
+            fillColor: b.carrier === 'DC' ? '#e94560' : '#4a9eff',
+            color: '#fff',
+            weight: 2,
+            fillOpacity: 0.8
+          }).bindPopup(`<b>${b.name}</b><br>Carrier: ${b.carrier}<br>V: ${b.v_nom} kV`));
+        
+        if (busMarkers.length > 0) {
+          mapLayers.buses = L.layerGroup(busMarkers).addTo(map);
+          // Fit map to bounds with more padding
+          const bounds = L.latLngBounds(buses.filter(b => b.x || b.y).map(b => [b.y, b.x]));
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 6 });
+        }
+      } catch (e) {
+        console.error('Failed to load map:', e);
+      }
+    }
+    
+    function renderTable(data, columns) {
+      if (!data || data.length === 0) {
+        return '<div class="empty-state">No data</div>';
+      }
+      const headers = columns.map(c => `<th>${c}</th>`).join('');
+      const rows = data.map(row => 
+        `<tr>${columns.map(c => `<td>${row[c] ?? '-'}</td>`).join('')}</tr>`
+      ).join('');
+      return `<table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+    }
+    async function loadBuses(networkId) {
+      const data = await window.backendAPI.get(`/networks/${networkId}/buses`);
+      document.getElementById('buses').innerHTML = renderTable(
+        data.buses, ['name', 'x', 'y', 'v_nom', 'carrier']
+      );
+    }
+    
+    async function loadGenerators(networkId) {
+      const data = await window.backendAPI.get(`/networks/${networkId}/generators`);
+      document.getElementById('generators').innerHTML = renderTable(
+        data.generators, ['name', 'bus', 'carrier', 'p_nom', 'marginal_cost']
+      );
+    }
+    
+    async function loadLines(networkId) {
+      const data = await window.backendAPI.get(`/networks/${networkId}/lines`);
+      document.getElementById('lines').innerHTML = renderTable(
+        data.lines, ['name', 'bus0', 'bus1', 's_nom', 'x', 'length']
+      );
+    }
+    
+    async function loadLoads(networkId) {
+      const data = await window.backendAPI.get(`/networks/${networkId}/loads`);
+      document.getElementById('loads').innerHTML = renderTable(
+        data.loads, ['name', 'bus', 'carrier', 'p_set']
+      );
+    }
+    
+    async function loadLinks(networkId) {
+      const data = await window.backendAPI.get(`/networks/${networkId}/links`);
+      document.getElementById('links').innerHTML = renderTable(
+        data.links, ['name', 'bus0', 'bus1', 'p_nom', 'carrier', 'efficiency']
+      );
+    }
+    
+    // Expose functions globally for onclick handlers
+    window.loadExampleNetwork = loadExampleNetwork;
+    window.openFileDialog = openFileDialog;
+    window.selectNetwork = selectNetwork;
+    window.runOptimization = runOptimization;
+    window.runStatistics = runStatistics;
+    
+    // Initial load
+    refreshNetworkList();
+  </script>
+</body>
+</html>
