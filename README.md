@@ -68,24 +68,52 @@ Output: `release/GridAssistant-0.1.0.AppImage`
 ### Windows (NSIS Installer)
 
 Build on Windows:
-```cmd
-cd app\frontend
+
+```powershell
+# 1. Clone repository
+git clone https://github.com/cdgaete/gridassistant.git
+cd gridassistant
+
+# 2. Download llama.cpp Windows binaries
+cd app\llm-server\scripts
+.\download_llamacpp.bat
+
+# 3. Build installer
+cd ..\..\frontend
 npm install
 npm run dist:win
 ```
 
-Output: `release/GridAssistant Setup 0.1.0.exe`
+Output: `release\GridAssistant Setup 0.1.0.exe`
+
+**User requirements:**
+- Install [Pixi](https://pixi.sh/): `powershell -c "iwr -useb https://pixi.sh/install.ps1 | iex"`
+- First launch downloads LLM model (~1.9GB) and Python dependencies
 
 ### macOS (DMG)
 
 Build on macOS:
+
 ```bash
-cd app/frontend
+# 1. Clone repository
+git clone https://github.com/cdgaete/gridassistant.git
+cd gridassistant
+
+# 2. Download llama.cpp macOS binaries
+cd app/llm-server/scripts
+./download_llamacpp.sh
+
+# 3. Build DMG
+cd ../../frontend
 npm install
 npm run dist:mac
 ```
 
 Output: `release/GridAssistant-0.1.0.dmg`
+
+**User requirements:**
+- Install [Pixi](https://pixi.sh/): `curl -fsSL https://pixi.sh/install.sh | bash`
+- First launch downloads LLM model (~1.9GB) and Python dependencies
 
 ## Architecture
 
