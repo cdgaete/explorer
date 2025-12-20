@@ -1,14 +1,19 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
+const fs = require('fs');
 
 let mainWindow;
 let pythonProcess;
 let llmProcess;
 
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+// Detect if we're in development based on directory structure
+const isDev = !app.isPackaged && fs.existsSync(path.join(__dirname, '..', '..', 'backend'));
 
-// Get resource paths (different in dev vs packaged)
+console.log('[Electron] isDev:', isDev);
+console.log('[Electron] __dirname:', __dirname);
+
+// Get resource paths
 function getResourcePath(relativePath) {
   if (isDev) {
     return path.join(__dirname, '..', '..', relativePath);
@@ -17,32 +22,107 @@ function getResourcePath(relativePath) {
   }
 }
 
-function startPythonBackend() {
-  const backendPath = getResourcePath('backend');
+// Get writable data path for packaged app
+function getDataPath(relativePath) {
+  if (isDev) {
+    return path.join(__dirname, '..', '..', relativePath);
+  } else {
+    return path.join(app.getPath('userData'), relativePath);
+  }
+}
+
+// Copy backend to writable location if needed (for packaged app)
+function setupBackend() {
+  if (isDev) return getResourcePath('backend');
   
-  // In packaged app, we need to use bundled Python or system Python
-  // For now, assume pixi is installed on the system
-  const pixiPath = process.env.HOME + '/.pixi/bin/pixi';
+  const sourceBackend = getResourcePath('backend');
+  const targetBackend = getDataPath('backend');
+  
+  if (!fs.existsSync(targetBackend)) {
+    console.log('[Electron] Copying backend to:', targetBackend);
+    fs.mkdirSync(targetBackend, { recursive: true });
+    
+    const files = fs.readdirSync(sourceBackend);
+    for (const file of files) {
+      const src = path.join(sourceBackend, file);
+      const dst = path.join(targetBackend, file);
+      fs.copyFileSync(src, dst);
+    }
+  }
+  
+  return targetBackend;
+}
+
+// Kill processes by port
+function killByPort(port) {
+  try {
+    // Try fuser first
+    execSync(`fuser -k ${port}/tcp 2>/dev/null`, { stdio: 'pipe' });
+  } catch (e) {}
+  try {
+    // Fallback to lsof + kill
+    const result = execSync(`lsof -ti:${port} 2>/dev/null`, { encoding: 'utf8' });
+    const pids = result.trim().split('\n').filter(p => p);
+    pids.forEach(pid => {
+      try { process.kill(parseInt(pid), 'SIGKILL'); } catch (e) {}
+    });
+  } catch (e) {}
+}
+
+// Cleanup all server processes
+function cleanup() {
+  console.log('[Electron] Cleaning up processes...');
+  
+  // Kill by process reference
+  if (pythonProcess && pythonProcess.pid) {
+    try { process.kill(-pythonProcess.pid, 'SIGKILL'); } catch (e) {}
+    try { pythonProcess.kill('SIGKILL'); } catch (e) {}
+  }
+  if (llmProcess && llmProcess.pid) {
+    try { process.kill(-llmProcess.pid, 'SIGKILL'); } catch (e) {}
+    try { llmProcess.kill('SIGKILL'); } catch (e) {}
+  }
+  
+  // Also kill by port as fallback
+  killByPort(8000);
+  killByPort(8080);
+  
+  console.log('[Electron] Cleanup done');
+}
+
+function startPythonBackend() {
+  const backendPath = setupBackend();
+  const pixiPath = path.join(process.env.HOME, '.pixi', 'bin', 'pixi');
   
   console.log('[Electron] Starting FastAPI backend from:', backendPath);
   
+  if (!fs.existsSync(backendPath)) {
+    console.error('[Electron] Backend path does not exist:', backendPath);
+    return;
+  }
+  
+  if (!fs.existsSync(pixiPath)) {
+    console.error('[Electron] Pixi not found. Please install: curl -fsSL https://pixi.sh/install.sh | bash');
+    return;
+  }
+  
+  if (!isDev) {
+    console.log('[Electron] Running pixi install...');
+    try {
+      execSync(`${pixiPath} install`, { cwd: backendPath, stdio: 'pipe' });
+    } catch (e) {}
+  }
+  
   pythonProcess = spawn(pixiPath, ['run', 'serve'], {
     cwd: backendPath,
-    shell: true,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PYTHONUNBUFFERED: '1' }
   });
 
-  pythonProcess.stdout.on('data', (data) => {
-    console.log(`[FastAPI] ${data}`);
-  });
-
-  pythonProcess.stderr.on('data', (data) => {
-    console.log(`[FastAPI] ${data}`);
-  });
-
-  pythonProcess.on('error', (err) => {
-    console.error('[Electron] Failed to start backend:', err);
-  });
+  pythonProcess.stdout.on('data', (data) => console.log(`[FastAPI] ${data}`));
+  pythonProcess.stderr.on('data', (data) => console.log(`[FastAPI] ${data}`));
+  pythonProcess.on('error', (err) => console.error('[Electron] Backend error:', err));
 }
 
 function startLLMServer() {
@@ -51,23 +131,21 @@ function startLLMServer() {
   
   console.log('[Electron] Starting LLM server from:', llmPath);
   
+  if (!fs.existsSync(startScript)) {
+    console.error('[Electron] LLM start script not found:', startScript);
+    return;
+  }
+  
   llmProcess = spawn('bash', [startScript], {
     cwd: llmPath,
-    shell: true,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env }
   });
 
-  llmProcess.stdout.on('data', (data) => {
-    console.log(`[LLM] ${data}`);
-  });
-
-  llmProcess.stderr.on('data', (data) => {
-    console.log(`[LLM] ${data}`);
-  });
-
-  llmProcess.on('error', (err) => {
-    console.error('[Electron] Failed to start LLM server:', err);
-  });
+  llmProcess.stdout.on('data', (data) => console.log(`[LLM] ${data}`));
+  llmProcess.stderr.on('data', (data) => console.log(`[LLM] ${data}`));
+  llmProcess.on('error', (err) => console.error('[Electron] LLM error:', err));
 }
 
 function createWindow() {
@@ -85,11 +163,10 @@ function createWindow() {
     backgroundColor: '#1a1a2e',
   });
 
+  mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
   
   mainWindow.on('closed', () => {
@@ -112,33 +189,18 @@ app.whenReady().then(() => {
   startPythonBackend();
   startLLMServer();
   
-  // Wait for servers to start
-  setTimeout(createWindow, 3000);
+  const startDelay = isDev ? 4000 : 8000;
+  setTimeout(createWindow, startDelay);
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (pythonProcess) {
-    pythonProcess.kill('SIGTERM');
-  }
-  if (llmProcess) {
-    llmProcess.kill('SIGTERM');
-  }
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  cleanup();
+  if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
-  if (pythonProcess) {
-    pythonProcess.kill('SIGTERM');
-  }
-  if (llmProcess) {
-    llmProcess.kill('SIGTERM');
-  }
-});
+app.on('before-quit', cleanup);
+app.on('quit', cleanup);
