@@ -37,6 +37,13 @@ export function useWebSocket() {
         const msg = JSON.parse(event.data)
         console.log('WS message:', msg)
 
+        // Handle job_queue messages first (no network_id required)
+        if (msg.type === 'job_queue') {
+          setJobs(msg.jobs || [])
+          return
+        }
+
+        // All other messages require network_id
         const networkId = msg.network_id
         if (!networkId) return
 
@@ -86,10 +93,6 @@ export function useWebSocket() {
         } else if (msg.type === 'optimization_log') {
           // Solver stdout logs
           addLog(networkId, msg.log, 'info')
-        } else if (msg.type === 'job_queue') {
-          // Update jobs list (no networkId check needed - msg.jobs is the full list)
-          setJobs(msg.jobs || [])
-          return
         }
       } catch (e) {
         console.error('Failed to parse WebSocket message:', e)
