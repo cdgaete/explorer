@@ -7,9 +7,7 @@ Provides natural language interface to PyPSA network operations.
 
 import json
 import httpx
-from typing import Any
 from dataclasses import dataclass
-from enum import Enum
 
 # LLM Server configuration
 LLM_BASE_URL = "http://localhost:8080/v1"

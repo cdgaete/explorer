@@ -19,8 +19,6 @@ import os
 import threading
 import queue
 import logging
-import psutil
-import multiprocessing
 from multiprocessing import Process, Queue as MPQueue
 
 # AI Chat
@@ -353,7 +351,7 @@ async def run_optimization_job(job: dict):
                             "network_id": network_id,
                             "log": msg.get("log", ""),
                         })
-                except:
+                except Exception:
                     break
 
             # Check if cancelled
@@ -379,20 +377,19 @@ async def run_optimization_job(job: dict):
                         "network_id": network_id,
                         "log": msg.get("log", ""),
                     })
-            except:
+            except Exception:
                 break
 
         # Get result
         try:
             result = result_queue.get_nowait()
-        except:
+        except Exception:
             result = {"success": False, "error": "No result from optimization process"}
 
         # Clean up process reference
         optimization_processes.pop(network_id, None)
 
         if result.get("success"):
-            status = result.get("status")
             termination = result.get("termination")
             objective = result.get("objective")
 
@@ -484,7 +481,7 @@ async def run_optimization_job(job: dict):
         # Clean up temp directory
         try:
             shutil.rmtree(temp_dir)
-        except:
+        except Exception:
             pass
         optimization_processes.pop(network_id, None)
         await broadcast_job_queue()
@@ -1214,6 +1211,6 @@ async def chat_health():
             resp = await client.get("http://localhost:8080/health")
             if resp.status_code == 200:
                 return {"status": "ok", "llm_server": "connected"}
-    except:
+    except Exception:
         pass
     return {"status": "unavailable", "llm_server": "not connected"}
