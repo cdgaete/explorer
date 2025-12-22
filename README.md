@@ -2,6 +2,8 @@
 
 A desktop application for analyzing PyPSA energy networks with an AI assistant.
 
+![Screenshot](screenshot.png)
+
 ## Features
 
 - **Load & Visualize** PyPSA networks (.nc, .h5 files)
